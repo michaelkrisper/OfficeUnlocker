@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Unlocker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            border: 2px dashed #ccc;
+            padding: 40px;
+            border-radius: 10px;
+            background-color: #fff;
+        }
+        input[type="file"] {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Unlock Excel or Word File</h1>
+        <p>Your file will be processed in your browser. No data is uploaded.</p>
+        <input type="file" id="fileInput" accept=".xlsx,.docx">
+        <br>
+        <button id="unlockButton">Unlock and Download</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        document.getElementById('unlockButton').addEventListener('click', async () => {
+            const fileInput = document.getElementById('fileInput');
+            const statusDiv = document.getElementById('status');
+
+            if (fileInput.files.length === 0) {
+                statusDiv.textContent = 'Please select a file first.';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const filename = file.name;
+            const fileExtension = filename.split('.').pop().toLowerCase();
+
+            if (fileExtension !== 'xlsx' && fileExtension !== 'docx') {
+                statusDiv.textContent = 'Please select an Excel (.xlsx) or Word (.docx) file.';
+                return;
+            }
+
+            statusDiv.textContent = 'Processing...';
+
+            try {
+                const zip = await JSZip.loadAsync(file);
+
+                if (fileExtension === 'xlsx') {
+                    // Remove workbook protection
+                    const workbookPath = 'xl/workbook.xml';
+                    const workbookFile = zip.file(workbookPath);
+                    if (workbookFile) {
+                        let content = await workbookFile.async('string');
+                        content = content.replace(/<workbookProtection[^>]*>/, '');
+                        zip.file(workbookPath, content);
+                    }
+
+                    // Remove sheet protection
+                    const worksheetsDir = 'xl/worksheets/';
+                    zip.folder(worksheetsDir).forEach(async (relativePath, sheetFile) => {
+                        if (sheetFile.name.endsWith('.xml')) {
+                           let content = await sheetFile.async('string');
+                           content = content.replace(/<sheetProtection[^>]*>/, '');
+                           zip.file(sheetFile.name, content);
+                        }
+                    });
+
+                } else if (fileExtension === 'docx') {
+                    const settingsPath = 'word/settings.xml';
+                    const settingsFile = zip.file(settingsPath);
+                    if (settingsFile) {
+                        let content = await settingsFile.async('string');
+                        content = content.replace(/<w:documentProtection[^>]*>/, '');
+                        zip.file(settingsPath, content);
+                    }
+                }
+
+                // Generate the new file
+                const newFileContent = await zip.generateAsync({ type: 'blob' });
+
+                // Create a download link
+                const downloadLink = document.createElement('a');
+                downloadLink.href = URL.createObjectURL(newFileContent);
+                downloadLink.download = 'unlocked_' + filename;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                statusDiv.textContent = 'File unlocked and download started!';
+
+            } catch (error) {
+                console.error(error);
+                statusDiv.textContent = 'An error occurred during processing.';
+            }
+        });
+    </script>
+</body>
+</html>

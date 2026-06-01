@@ -38,15 +38,24 @@ async function buildProtectedXlsx() {
   zip.file(
     'xl/workbook.xml',
     '<?xml version="1.0"?><workbook>' +
+      '<fileSharing readOnlyRecommended="1"/>' +
       '<workbookProtection workbookPassword="ABCD" lockStructure="1"/>' +
       '<sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets>' +
       '</workbook>'
   );
+  // sheet1 uses the self-closing form of sheetProtection ...
   zip.file(
     'xl/worksheets/sheet1.xml',
     '<?xml version="1.0"?><worksheet>' +
       '<sheetData><row r="1"><c r="A1" t="str"><v>keepme</v></c></row></sheetData>' +
       '<sheetProtection sheet="1" password="CC3F" objects="1" scenarios="1"/>' +
+      '</worksheet>'
+  );
+  // ... while sheet2 uses the rarer paired form: <sheetProtection ...></sheetProtection>
+  zip.file(
+    'xl/worksheets/sheet2.xml',
+    '<?xml version="1.0"?><worksheet><sheetData/>' +
+      '<sheetProtection algorithmName="SHA-512" hashValue="x" sheet="1"></sheetProtection>' +
       '</worksheet>'
   );
   return zip.generateAsync({ type: 'nodebuffer' });
@@ -58,6 +67,7 @@ async function buildProtectedDocx() {
   zip.file(
     'word/settings.xml',
     '<?xml version="1.0"?><w:settings xmlns:w="http://x">' +
+      '<w:writeProtection w:cryptProviderType="rsaAES"/>' +
       '<w:documentProtection w:edit="readOnly" w:enforcement="1" w:hash="abc"/>' +
       '<w:defaultTabStop w:val="708"/>' +
       '</w:settings>'
@@ -94,25 +104,30 @@ async function readEntry(buffer, path) {
     const { blob, removed } = await OfficeUnlocker.unlock(input);
 
     const workbook = await readEntry(blob, 'xl/workbook.xml');
-    const sheet = await readEntry(blob, 'xl/worksheets/sheet1.xml');
+    const sheet1 = await readEntry(blob, 'xl/worksheets/sheet1.xml');
+    const sheet2 = await readEntry(blob, 'xl/worksheets/sheet2.xml');
 
     assert.ok(!/workbookProtection/.test(workbook), 'workbookProtection still present');
-    assert.ok(!/sheetProtection/.test(sheet), 'sheetProtection still present');
-    assert.ok(/keepme/.test(sheet), 'sheet data was lost');
+    assert.ok(!/fileSharing/.test(workbook), 'fileSharing still present');
+    assert.ok(!/sheetProtection/.test(sheet1), 'self-closing sheetProtection still present');
+    assert.ok(!/sheetProtection/.test(sheet2), 'paired sheetProtection still present');
+    assert.ok(/keepme/.test(sheet1), 'sheet data was lost');
     assert.ok(/Data/.test(workbook), 'sheet definition was lost');
     assert.ok(removed.includes('workbookProtection') && removed.includes('sheetProtection'));
+    assert.ok(removed.includes('fileSharing'), 'fileSharing not reported as removed');
   });
 
-  await test('removes document protection from .docx', async () => {
+  await test('removes document + write protection from .docx', async () => {
     const input = await buildProtectedDocx();
     const { blob, removed } = await OfficeUnlocker.unlock(input);
 
     const settings = await readEntry(blob, 'word/settings.xml');
     assert.ok(!/documentProtection/.test(settings), 'documentProtection still present');
+    assert.ok(!/writeProtection/.test(settings), 'writeProtection still present');
     assert.ok(/defaultTabStop/.test(settings), 'other settings were lost');
     const doc = await readEntry(blob, 'word/document.xml');
     assert.ok(/keepme/.test(doc), 'document body was lost');
-    assert.ok(removed.includes('w:documentProtection'));
+    assert.ok(removed.includes('w:documentProtection') && removed.includes('w:writeProtection'));
   });
 
   await test('removes modify verifier from .pptx', async () => {

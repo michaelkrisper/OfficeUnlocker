@@ -1,0 +1,17 @@
+{
+  "name": "officeunlocker",
+  "version": "1.0.0",
+  "description": "Remove editing/sheet/workbook/document protection from Office (.xlsx, .docx, .pptx) files entirely in the browser.",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "node test/unlock.test.js",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "jszip": "^3.10.1"
+  }
+}

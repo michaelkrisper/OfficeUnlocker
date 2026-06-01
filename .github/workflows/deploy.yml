@@ -28,7 +28,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -36,6 +36,14 @@ jobs:
 
       - name: Lint & test
         run: npm run check
+
+      - name: Setup Pages
+        # Enables GitHub Pages for the repo (source: GitHub Actions) if it is not
+        # already configured, so the deploy step below cannot fail on a missing
+        # Pages site.
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Assemble site
         run: |

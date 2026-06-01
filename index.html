@@ -1,121 +1,358 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Unlocker</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
+    <title>Office Unlocker – Schutz von Excel, Word & PowerPoint entfernen</title>
+    <meta name="description" content="Entfernt den Bearbeitungsschutz von Excel-, Word- und PowerPoint-Dateien. Alles passiert lokal im Browser – keine Datei wird hochgeladen.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔓</text></svg>">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="unlock.js"></script>
     <style>
+        :root {
+            --bg-1: #0f172a;
+            --bg-2: #1e293b;
+            --accent: #6366f1;
+            --accent-2: #8b5cf6;
+            --accent-glow: rgba(99, 102, 241, 0.35);
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+            --card: rgba(255, 255, 255, 0.04);
+            --card-border: rgba(255, 255, 255, 0.09);
+            --success: #22c55e;
+            --error: #ef4444;
+            --radius: 18px;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body { height: 100%; }
+
         body {
-            font-family: sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
             margin: 0;
-            background-color: #f0f0f0;
+            font-family: var(--font);
+            color: var(--text);
+            background:
+                radial-gradient(900px 600px at 12% -8%, rgba(99,102,241,0.20), transparent 60%),
+                radial-gradient(800px 600px at 100% 0%, rgba(139,92,246,0.18), transparent 55%),
+                linear-gradient(160deg, var(--bg-1), var(--bg-2));
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 32px 20px;
+            -webkit-font-smoothing: antialiased;
         }
-        .container {
-            text-align: center;
-            border: 2px dashed #ccc;
-            padding: 40px;
-            border-radius: 10px;
-            background-color: #fff;
-        }
-        input[type="file"] {
+
+        .wrap { width: 100%; max-width: 560px; }
+
+        header { text-align: center; margin-bottom: 28px; }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-dim);
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            padding: 6px 14px;
+            border-radius: 999px;
             margin-bottom: 20px;
         }
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
+        .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 10px var(--success); }
+
+        h1 {
+            font-size: clamp(28px, 6vw, 40px);
+            line-height: 1.1;
+            margin: 0 0 12px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(120deg, #fff 20%, #c7d2fe 60%, #a78bfa);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        header p { margin: 0; color: var(--text-dim); font-size: 16px; max-width: 460px; margin-inline: auto; }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            padding: 28px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 24px 60px -20px rgba(0,0,0,0.6);
+        }
+
+        .dropzone {
+            position: relative;
+            border: 2px dashed var(--card-border);
+            border-radius: 14px;
+            padding: 40px 24px;
+            text-align: center;
             cursor: pointer;
+            transition: border-color .2s ease, background .2s ease, transform .15s ease;
+            background: rgba(255,255,255,0.015);
         }
-        #status {
-            margin-top: 20px;
-            font-weight: bold;
+        .dropzone:hover { border-color: var(--accent); background: rgba(99,102,241,0.06); }
+        .dropzone.dragover {
+            border-color: var(--accent);
+            background: rgba(99,102,241,0.12);
+            box-shadow: 0 0 0 4px var(--accent-glow);
+            transform: scale(1.01);
         }
+        .dropzone input { display: none; }
+
+        .dz-icon { font-size: 44px; line-height: 1; margin-bottom: 14px; filter: drop-shadow(0 6px 18px var(--accent-glow)); }
+        .dz-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+        .dz-sub { font-size: 14px; color: var(--text-dim); }
+        .dz-formats { display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+        .chip {
+            font-size: 12px; font-weight: 600; color: var(--text-dim);
+            border: 1px solid var(--card-border); border-radius: 8px; padding: 4px 10px;
+        }
+
+        .file-row {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            margin-top: 18px;
+            padding: 12px 14px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+        }
+        .file-row.show { display: flex; }
+        .file-emoji { font-size: 24px; }
+        .file-meta { flex: 1; min-width: 0; text-align: left; }
+        .file-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .file-size { font-size: 12px; color: var(--text-dim); }
+        .file-clear { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 18px; padding: 4px; }
+        .file-clear:hover { color: var(--text); }
+
+        button.action {
+            width: 100%;
+            margin-top: 22px;
+            padding: 15px 20px;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: inherit;
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            box-shadow: 0 12px 30px -10px var(--accent-glow);
+            transition: transform .12s ease, opacity .2s ease, box-shadow .2s ease;
+        }
+        button.action:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 18px 36px -12px var(--accent-glow); }
+        button.action:active:not(:disabled) { transform: translateY(0); }
+        button.action:disabled { opacity: .5; cursor: not-allowed; }
+
+        .status {
+            margin-top: 18px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            min-height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .status.success { color: var(--success); }
+        .status.error { color: var(--error); }
+        .status.working { color: var(--text-dim); }
+
+        .spinner {
+            width: 15px; height: 15px;
+            border: 2px solid var(--card-border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 26px;
+        }
+        .step {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 14px 12px;
+            text-align: center;
+        }
+        .step .n { font-size: 18px; margin-bottom: 6px; }
+        .step .t { font-size: 12px; color: var(--text-dim); line-height: 1.35; }
+
+        footer { text-align: center; margin-top: 26px; color: var(--text-dim); font-size: 13px; }
+        footer a { color: #c7d2fe; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        .note { margin-top: 10px; font-size: 12px; color: var(--text-dim); opacity: .85; max-width: 480px; margin-inline: auto; line-height: 1.5; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Unlock Excel or Word File</h1>
-        <p>Your file will be processed in your browser. No data is uploaded.</p>
-        <input type="file" id="fileInput" accept=".xlsx,.docx">
-        <br>
-        <button id="unlockButton">Unlock and Download</button>
-        <div id="status"></div>
-    </div>
+    <main class="wrap">
+        <header>
+            <span class="badge"><span class="dot"></span>100&nbsp;% lokal im Browser</span>
+            <h1>Office Unlocker</h1>
+            <p>Entferne den Bearbeitungsschutz aus Excel-, Word- und PowerPoint-Dateien – direkt in deinem Browser, ohne Upload.</p>
+        </header>
+
+        <section class="card">
+            <label class="dropzone" id="dropzone" for="fileInput">
+                <input type="file" id="fileInput" accept=".xlsx,.docx,.pptx">
+                <div class="dz-icon">🔓</div>
+                <div class="dz-title">Datei hierher ziehen oder klicken</div>
+                <div class="dz-sub">Excel · Word · PowerPoint</div>
+                <div class="dz-formats">
+                    <span class="chip">.xlsx</span>
+                    <span class="chip">.docx</span>
+                    <span class="chip">.pptx</span>
+                </div>
+            </label>
+
+            <div class="file-row" id="fileRow">
+                <span class="file-emoji" id="fileEmoji">📄</span>
+                <div class="file-meta">
+                    <div class="file-name" id="fileName"></div>
+                    <div class="file-size" id="fileSize"></div>
+                </div>
+                <button class="file-clear" id="fileClear" title="Entfernen" aria-label="Entfernen">✕</button>
+            </div>
+
+            <button class="action" id="unlockButton" disabled>Schutz entfernen &amp; herunterladen</button>
+
+            <div class="status" id="status"></div>
+        </section>
+
+        <div class="steps">
+            <div class="step"><div class="n">1️⃣</div><div class="t">Datei auswählen</div></div>
+            <div class="step"><div class="n">2️⃣</div><div class="t">Schutz wird lokal entfernt</div></div>
+            <div class="step"><div class="n">3️⃣</div><div class="t">Entsperrte Datei laden</div></div>
+        </div>
+
+        <p class="note">
+            Es wird der <strong>Bearbeitungs- bzw. Blattschutz</strong> entfernt (Schreibschutz, Blatt-/Arbeitsmappen- und Dokumentschutz).
+            Mit einem <em>Öffnungs-Passwort</em> vollständig verschlüsselte Dateien können ohne dieses Passwort nicht entschlüsselt werden.
+        </p>
+
+        <footer>
+            Deine Dateien verlassen niemals dein Gerät. ·
+            <a href="https://github.com/michaelkrisper/officeunlocker" target="_blank" rel="noopener">Quellcode auf GitHub</a>
+        </footer>
+    </main>
 
     <script>
-        document.getElementById('unlockButton').addEventListener('click', async () => {
-            const fileInput = document.getElementById('fileInput');
-            const statusDiv = document.getElementById('status');
+        const fileInput = document.getElementById('fileInput');
+        const dropzone = document.getElementById('dropzone');
+        const fileRow = document.getElementById('fileRow');
+        const fileNameEl = document.getElementById('fileName');
+        const fileSizeEl = document.getElementById('fileSize');
+        const fileEmojiEl = document.getElementById('fileEmoji');
+        const fileClear = document.getElementById('fileClear');
+        const unlockButton = document.getElementById('unlockButton');
+        const statusDiv = document.getElementById('status');
 
-            if (fileInput.files.length === 0) {
-                statusDiv.textContent = 'Please select a file first.';
+        const ALLOWED = ['xlsx', 'docx', 'pptx'];
+        const EMOJI = { xlsx: '📊', docx: '📝', pptx: '📈' };
+        let selectedFile = null;
+
+        function extOf(name) { return name.split('.').pop().toLowerCase(); }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        function setStatus(text, kind, spinner) {
+            statusDiv.className = 'status' + (kind ? ' ' + kind : '');
+            statusDiv.innerHTML = (spinner ? '<span class="spinner"></span>' : '') + (text || '');
+        }
+
+        function selectFile(file) {
+            if (!file) return;
+            const ext = extOf(file.name);
+            if (!ALLOWED.includes(ext)) {
+                setStatus('Bitte eine .xlsx-, .docx- oder .pptx-Datei wählen.', 'error');
                 return;
             }
+            selectedFile = file;
+            fileNameEl.textContent = file.name;
+            fileSizeEl.textContent = formatSize(file.size);
+            fileEmojiEl.textContent = EMOJI[ext] || '📄';
+            fileRow.classList.add('show');
+            unlockButton.disabled = false;
+            setStatus('', '');
+        }
 
-            const file = fileInput.files[0];
-            const filename = file.name;
-            const fileExtension = filename.split('.').pop().toLowerCase();
+        function clearFile() {
+            selectedFile = null;
+            fileInput.value = '';
+            fileRow.classList.remove('show');
+            unlockButton.disabled = true;
+            setStatus('', '');
+        }
 
-            if (fileExtension !== 'xlsx' && fileExtension !== 'docx') {
-                statusDiv.textContent = 'Please select an Excel (.xlsx) or Word (.docx) file.';
-                return;
-            }
+        fileInput.addEventListener('change', () => selectFile(fileInput.files[0]));
+        fileClear.addEventListener('click', (e) => { e.preventDefault(); clearFile(); });
 
-            statusDiv.textContent = 'Processing...';
+        ['dragenter', 'dragover'].forEach(evt =>
+            dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+        ['dragleave', 'drop'].forEach(evt =>
+            dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+        dropzone.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+        });
+
+        unlockButton.addEventListener('click', async () => {
+            if (!selectedFile) { setStatus('Bitte zuerst eine Datei auswählen.', 'error'); return; }
+
+            const ext = extOf(selectedFile.name);
+            unlockButton.disabled = true;
+            setStatus('Datei wird verarbeitet …', 'working', true);
 
             try {
-                const zip = await JSZip.loadAsync(file);
+                // 1. Entzippen
+                const zip = await JSZip.loadAsync(selectedFile);
+                // 2. Schutz entfernen
+                const result = await OfficeUnlocker.unlockOfficeZip(zip, ext);
+                // 3. Wieder zippen
+                const blob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: 6 }
+                });
+                // 4. Download
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'unlocked_' + selectedFile.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 4000);
 
-                if (fileExtension === 'xlsx') {
-                    // Remove workbook protection
-                    const workbookPath = 'xl/workbook.xml';
-                    const workbookFile = zip.file(workbookPath);
-                    if (workbookFile) {
-                        let content = await workbookFile.async('string');
-                        content = content.replace(/<workbookProtection[^>]*>/, '');
-                        zip.file(workbookPath, content);
-                    }
-
-                    // Remove sheet protection
-                    const worksheetsDir = 'xl/worksheets/';
-                    zip.folder(worksheetsDir).forEach(async (relativePath, sheetFile) => {
-                        if (sheetFile.name.endsWith('.xml')) {
-                           let content = await sheetFile.async('string');
-                           content = content.replace(/<sheetProtection[^>]*>/, '');
-                           zip.file(sheetFile.name, content);
-                        }
-                    });
-
-                } else if (fileExtension === 'docx') {
-                    const settingsPath = 'word/settings.xml';
-                    const settingsFile = zip.file(settingsPath);
-                    if (settingsFile) {
-                        let content = await settingsFile.async('string');
-                        content = content.replace(/<w:documentProtection[^>]*>/, '');
-                        zip.file(settingsPath, content);
-                    }
+                if (result.changed) {
+                    setStatus('Schutz entfernt – Download gestartet ✓', 'success');
+                } else {
+                    setStatus('Kein Schutz gefunden – Datei trotzdem geladen.', 'success');
                 }
-
-                // Generate the new file
-                const newFileContent = await zip.generateAsync({ type: 'blob' });
-
-                // Create a download link
-                const downloadLink = document.createElement('a');
-                downloadLink.href = URL.createObjectURL(newFileContent);
-                downloadLink.download = 'unlocked_' + filename;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-
-                statusDiv.textContent = 'File unlocked and download started!';
-
-            } catch (error) {
-                console.error(error);
-                statusDiv.textContent = 'An error occurred during processing.';
+            } catch (err) {
+                console.error(err);
+                setStatus('Fehler: Datei konnte nicht verarbeitet werden. Ist sie mit Öffnungs-Passwort verschlüsselt?', 'error');
+            } finally {
+                unlockButton.disabled = false;
             }
         });
     </script>

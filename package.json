@@ -1,0 +1,19 @@
+{
+  "name": "officeunlocker",
+  "version": "1.0.0",
+  "description": "Single-page web app that removes the editing protection from Microsoft Excel (.xlsx), Word (.docx) and PowerPoint (.pptx) files, entirely in the browser.",
+  "main": "unlock.js",
+  "scripts": {
+    "test": "node test/verify.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michaelkrisper/officeunlocker"
+  },
+  "keywords": ["office", "xlsx", "docx", "pptx", "unlock", "protection", "browser"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "jszip": "^3.10.1"
+  }
+}

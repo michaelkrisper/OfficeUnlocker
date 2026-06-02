@@ -6,9 +6,9 @@ PowerPoint (`.pptx`)** — directly in your browser.
 
 **Everything runs locally. Your files are never uploaded to any server.**
 
-👉 **Live site:** https://michaelkrisper.github.io/officeunlocker/
+👉 **Live site:** https://michaelkrisper.github.io/OfficeUnlocker/
 
-[![CI](https://github.com/michaelkrisper/officeunlocker/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/officeunlocker/actions/workflows/ci.yml)
+[![CI](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## How it works
@@ -44,12 +44,12 @@ instead of producing a corrupt file.
 
 ## Usage
 
-Just open the [live site](https://michaelkrisper.github.io/officeunlocker/),
+Just open the [live site](https://michaelkrisper.github.io/OfficeUnlocker/),
 or run it locally — no build step required:
 
 ```bash
-git clone https://github.com/michaelkrisper/officeunlocker.git
-cd officeunlocker
+git clone https://github.com/michaelkrisper/OfficeUnlocker.git
+cd OfficeUnlocker
 # Serve the folder with any static server, e.g.:
 npx serve .
 # then open the printed URL in your browser

@@ -307,8 +307,8 @@
       </div>
       <h1>OfficeUnlocker</h1>
       <p class="subtitle">
-        Remove editing protection from Office files, usage restrictions from
-        PDFs and the password from Outlook archives — entirely in your browser.
+        Remove protection from Office, OpenDocument, PDF, VBA and Outlook files —
+        entirely in your browser.
       </p>
     </div>
 
@@ -329,8 +329,12 @@
           <span class="badge">PPTX</span>
           <span class="badge">PDF</span>
           <span class="badge">PST</span>
+          <span class="badge">ODF</span>
+          <span class="badge">XLS</span>
+          <span class="badge">VBA</span>
         </div>
-        <input type="file" id="fileInput" accept=".xlsx,.docx,.pptx,.pdf,.pst">
+        <input type="file" id="fileInput"
+               accept=".xlsx,.docx,.pptx,.xlsm,.docm,.pptm,.xlsb,.odt,.ods,.odp,.odg,.xls,.doc,.ppt,.pdf,.pst">
       </label>
 
       <div class="file-chip" id="fileChip">
@@ -362,14 +366,15 @@
       </div>
 
       <p class="note">
-        <strong>What this does:</strong> removes editing restrictions from Office
-        files (sheet, workbook and document protection), usage restrictions from
-        PDFs (printing, copying, editing) and the password from Outlook
-        <em>.pst</em> archives. It <strong>cannot</strong> open files locked with
-        an <em>open password</em> (full-file encryption, including PDF
-        view passwords) — those require the original password and are detected
-        automatically. PDF and PST support is new — your original file is never
-        modified, so keep it until you've confirmed the result.
+        <strong>What this does:</strong> removes editing/sheet/document protection
+        from Office (incl. legacy <em>.xls/.doc/.ppt</em>) and OpenDocument files,
+        PDF usage restrictions (printing, copying, editing), VBA macro project
+        passwords and the Outlook <em>.pst</em> password. It <strong>cannot</strong>
+        open files locked with an <em>open password</em> (full-file encryption,
+        including PDF view passwords) — those require the original password and are
+        detected automatically. Newer formats are validated against test vectors,
+        not a large file corpus — your original file is never modified, so keep it
+        until you've confirmed the result.
       </p>
     </div>
   </main>
@@ -390,6 +395,8 @@
     crossorigin="anonymous"
     referrerpolicy="no-referrer"></script>
   <script src="bincrypto.js"></script>
+  <script src="ole2.js"></script>
+  <script src="olelock.js"></script>
   <script src="pdfunlock.js"></script>
   <script src="pstunlock.js"></script>
   <script src="unlock.js"></script>
@@ -437,7 +444,7 @@
       function selectFile(file) {
         if (!file) return;
         if (!OfficeUnlocker.isSupported(file.name)) {
-          setStatus('Unsupported file type. Please choose an .xlsx, .docx, .pptx, .pdf or .pst file.', 'error');
+          setStatus('Unsupported file type. Try an Office (.xlsx/.docx/.pptx/.xls…), OpenDocument (.ods/.odt/.odp), .pdf or .pst file.', 'error');
           return;
         }
         selectedFile = file;

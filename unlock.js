@@ -21,16 +21,19 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     // Node.js – pull in dependencies from node_modules / sibling files.
-    module.exports = factory(require('jszip'), require('./pdfunlock.js'), require('./pstunlock.js'));
+    module.exports = factory(require('jszip'), require('./pdfunlock.js'), require('./pstunlock.js'), require('./olelock.js'));
   } else {
     // Browser – dependencies are expected to be loaded globally beforehand.
-    root.OfficeUnlocker = factory(root.JSZip, root.PdfUnlock, root.PstUnlock);
+    root.OfficeUnlocker = factory(root.JSZip, root.PdfUnlock, root.PstUnlock, root.OleLock);
   }
-})(typeof self !== 'undefined' ? self : this, function (JSZip, PdfUnlock, PstUnlock) {
+})(typeof self !== 'undefined' ? self : this, function (JSZip, PdfUnlock, PstUnlock, OleLock) {
   'use strict';
 
-  var OOXML_EXTENSIONS = ['xlsx', 'docx', 'pptx'];
-  var SUPPORTED_EXTENSIONS = OOXML_EXTENSIONS.concat(['pdf', 'pst']);
+  var OOXML_EXTENSIONS = ['xlsx', 'docx', 'pptx', 'xlsm', 'docm', 'pptm', 'xlsb'];
+  var ODF_EXTENSIONS = ['odt', 'ods', 'odp', 'odg'];
+  var LEGACY_EXTENSIONS = ['xls', 'doc', 'ppt'];
+  var SUPPORTED_EXTENSIONS = OOXML_EXTENSIONS
+    .concat(ODF_EXTENSIONS, LEGACY_EXTENSIONS, ['pdf', 'pst']);
 
   // OLE2 / Compound File Binary magic number. Files starting with these bytes
   // are encrypted Office documents (open-password protected) and are NOT ZIPs.
@@ -153,18 +156,38 @@
 
   function makeError(code, message) { var e = new Error(message); e.code = code; return e; }
 
-  // --- Office Open XML (.xlsx / .docx / .pptx) -------------------------------
+  // OLE2 container: encrypted OOXML, or a legacy binary Office / VBA file.
+  function unlockOle2(bytes) {
+    if (!OleLock) throw makeError('ENCRYPTED', 'This file is encrypted with an "open password" and cannot be unlocked without it.');
+    var res = OleLock.unlock(bytes);
+    return { blob: toOutput(res.bytes), removed: res.removed, kind: res.kind };
+  }
+
+  // Macro-enabled OOXML packages embed the VBA project as vbaProject.bin (a CFB).
+  async function stripVbaProject(zip) {
+    if (!OleLock) return [];
+    var paths = Object.keys(zip.files);
+    for (var i = 0; i < paths.length; i++) {
+      var path = paths[i];
+      if (!/(^|\/)vbaProject\.bin$/i.test(path) || zip.files[path].dir) continue;
+      var bin = await zip.files[path].async('uint8array');
+      var res = OleLock.unlockVbaProjectBin(bin);
+      if (res.changed) {
+        zip.file(path, res.bytes);
+        return ['VBA project password'];
+      }
+    }
+    return [];
+  }
+
+  // --- ZIP-based documents: OOXML (.xlsx/.docx/.pptx) and ODF (.odt/.ods/.odp)
 
   async function unlockOoxml(data, bytes) {
     var head = bytes.subarray(0, 8);
 
     if (looksEncrypted(head)) {
-      var err = new Error(
-        'This file is encrypted with an "open password". It cannot be unlocked ' +
-        'in the browser without the password.'
-      );
-      err.code = 'ENCRYPTED';
-      throw err;
+      // OLE2 container: encrypted OOXML or a legacy binary Office file.
+      return unlockOle2(bytes);
     }
 
     var zip;
@@ -176,9 +199,29 @@
       throw ze;
     }
 
+    var isOdf = false;
+    if (zip.files['mimetype']) {
+      var mt = await zip.files['mimetype'].async('string');
+      isOdf = /application\/vnd\.oasis\.opendocument/.test(mt);
+    }
+
+    var removed = isOdf ? await stripOdf(zip) : await stripOoxml(zip);
+    removed = removed.concat(await stripVbaProject(zip));
+
+    var outputType = isNodeEnv() ? 'nodebuffer' : 'blob';
+    var blob = await zip.generateAsync({
+      type: outputType,
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+      mimeType: 'application/octet-stream'
+    });
+
+    return { blob: blob, removed: removed, kind: isOdf ? 'odf' : 'ooxml' };
+  }
+
+  async function stripOoxml(zip) {
     var removed = [];
     var paths = Object.keys(zip.files);
-
     for (var i = 0; i < paths.length; i++) {
       var path = paths[i];
       var entry = zip.files[path];
@@ -197,20 +240,42 @@
           if (removed.indexOf(tags[t]) === -1) removed.push(tags[t]);
         }
       }
-      if (changed) {
-        zip.file(path, content);
+      if (changed) zip.file(path, content);
+    }
+    return removed;
+  }
+
+  // OpenDocument stores protection as XML *attributes* (e.g. table:protected),
+  // optionally guarded by a hashed protection-key — neither of which encrypts
+  // the content, so both can simply be cleared.
+  async function stripOdf(zip) {
+    // Refuse genuinely encrypted ODF (open password).
+    if (zip.files['META-INF/manifest.xml']) {
+      var manifest = await zip.files['META-INF/manifest.xml'].async('string');
+      if (/encryption-data/.test(manifest)) {
+        var err = new Error('This OpenDocument file is encrypted with a password and cannot be unlocked without it.');
+        err.code = 'ENCRYPTED';
+        throw err;
       }
     }
 
-    var outputType = isNodeEnv() ? 'nodebuffer' : 'blob';
-    var blob = await zip.generateAsync({
-      type: outputType,
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-      mimeType: 'application/octet-stream'
-    });
-
-    return { blob: blob, removed: removed, kind: 'ooxml' };
+    var removed = [];
+    var targets = ['content.xml', 'styles.xml'];
+    for (var i = 0; i < targets.length; i++) {
+      var path = targets[i];
+      if (!zip.files[path]) continue;
+      var xml = await zip.files[path].async('string');
+      var before = xml;
+      // Flip protection flags off (sheets, sections, drawings, forms).
+      xml = xml.replace(/((?:\w+:)?(?:protected|protection))="true"/g, '$1="false"');
+      // Remove the stored protection-key hashes entirely.
+      xml = xml.replace(/\s+(?:\w+:)?protection-key(?:-digest-algorithm(?:-gpg)?)?="[^"]*"/g, '');
+      if (xml !== before) {
+        zip.file(path, xml);
+        if (removed.indexOf('document protection') === -1) removed.push('document protection');
+      }
+    }
+    return removed;
   }
 
   return {

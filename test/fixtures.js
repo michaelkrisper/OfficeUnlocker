@@ -143,15 +143,60 @@ function buildUserPasswordPdf() {
   return assemble(objs, [1, 2, 4], `/Root 1 0 R /Encrypt 4 0 R /ID [${hex(id)} ${hex(id)}]`);
 }
 
-// AES-256 (V5 / R6) marker PDF — should be reported as unsupported.
-function buildAes256Pdf() {
+// Genuinely AES-256 (V5 / R6) encrypted PDF with an empty user password.
+function hashR6(R, password, salt, udata) {
+  const cat = (arr) => Buffer.concat(arr.map((a) => Buffer.from(a)));
+  let K = Buffer.from(bc.sha256(cat([password, salt, udata])));
+  if (R === 5) return K;
+  let round = 0;
+  while (true) {
+    const block = cat([password, K, udata]);
+    const K1 = Buffer.alloc(block.length * 64);
+    for (let i = 0; i < 64; i++) block.copy(K1, i * block.length);
+    const E = Buffer.from(bc.aesCbcEncryptNoPad(new Uint8Array(K.subarray(0, 16)), new Uint8Array(K.subarray(16, 32)), new Uint8Array(K1)));
+    let sum = 0; for (let i = 0; i < 16; i++) sum += E[i];
+    const mod = sum % 3;
+    K = Buffer.from(mod === 0 ? bc.sha256(E) : (mod === 1 ? bc.sha384(E) : bc.sha512(E)));
+    round++;
+    if (round >= 64 && E[E.length - 1] <= round - 32) break;
+  }
+  return K.subarray(0, 32);
+}
+
+function buildAes256R6Pdf() {
+  const R = 6;
   const id = Buffer.from('0123456789abcdef', 'latin1');
-  const objs = {
-    1: '<< /Type /Catalog /Pages 2 0 R >>',
-    2: '<< /Type /Pages /Kids [] /Count 0 >>',
-    4: `<< /Filter /Standard /V 5 /R 6 /Length 256 /P -44 /O ${hex(Buffer.alloc(48))} /U ${hex(Buffer.alloc(48))} >>`
+  const P = -44;
+  const fileKey = crypto.randomBytes(32);
+  const empty = Buffer.alloc(0);
+  const valSalt = crypto.randomBytes(8), keySalt = crypto.randomBytes(8);
+  const U = Buffer.concat([hashR6(R, empty, valSalt, empty), valSalt, keySalt]); // 48 bytes
+  const intermediate = hashR6(R, empty, keySalt, empty);
+  const UE = Buffer.from(bc.aesCbcEncryptNoPad(new Uint8Array(intermediate), new Uint8Array(16), new Uint8Array(fileKey)));
+  // Owner key material (empty owner password), for a realistic dictionary.
+  const oVal = crypto.randomBytes(8), oKey = crypto.randomBytes(8);
+  const O = Buffer.concat([hashR6(R, empty, oVal, U), oVal, oKey]);
+  const oInter = hashR6(R, empty, oKey, U);
+  const OE = Buffer.from(bc.aesCbcEncryptNoPad(new Uint8Array(oInter), new Uint8Array(16), new Uint8Array(fileKey)));
+
+  const aesEnc = (plain) => {
+    const iv = crypto.randomBytes(16);
+    const c = crypto.createCipheriv('aes-256-cbc', fileKey, iv);
+    return Buffer.concat([iv, c.update(Buffer.from(plain)), c.final()]);
   };
-  return assemble(objs, [1, 2, 4], `/Root 1 0 R /Encrypt 4 0 R /ID [${hex(id)} ${hex(id)}]`, '1.7');
+  const content = 'BT (AES-256 R6 Secret) Tj ET';
+  const encContent = aesEnc(content);
+
+  const objs = {
+    1: `<< /Type /Catalog /Pages 2 0 R /T ${hex(aesEnc('aes256-string'))} >>`,
+    2: '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    3: '<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>',
+    4: `<< /Filter /Standard /V 5 /R 6 /Length 256 /P ${P} /O ${hex(O)} /U ${hex(U)} /OE ${hex(OE)} /UE ${hex(UE)} /StmF /StdCF /StrF /StdCF /CF << /StdCF << /CFM /AESV3 /Length 32 >> >> >>`,
+    5: { dict: '<< /Length ' + encContent.length + ' >>', raw: encContent }
+  };
+  const bytes = assemble(objs, [1, 2, 3, 4, 5],
+    `/Root 1 0 R /Encrypt 4 0 R /ID [${hex(id)} ${hex(id)}]`, '2.0');
+  return { bytes, secretContent: content, secretString: 'aes256-string' };
 }
 
 // --- PST -------------------------------------------------------------------
@@ -220,7 +265,159 @@ function readPstPassword(bytes, BLOCK = 0x800, cb = 46) {
   return (dec[24] | (dec[25] << 8) | (dec[26] << 16) | (dec[27] << 24)) >>> 0;
 }
 
+// --- ODF -------------------------------------------------------------------
+
+const JSZip = require('jszip');
+
+async function buildProtectedOds() {
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/vnd.oasis.opendocument.spreadsheet');
+  zip.file('META-INF/manifest.xml',
+    '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:x"/>');
+  zip.file('content.xml',
+    '<?xml version="1.0"?><office:document-content xmlns:office="urn:o" xmlns:table="urn:t">' +
+    '<office:body><office:spreadsheet>' +
+    '<table:table table:name="Sheet1" table:protected="true" ' +
+    'table:protection-key="abc123==" table:protection-key-digest-algorithm="urn:sha256">' +
+    '<table:table-row><table:table-cell><text:p>keepme</text:p></table:table-cell></table:table-row>' +
+    '</table:table>' +
+    '</office:spreadsheet></office:body></office:document-content>');
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+async function buildEncryptedOdt() {
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/vnd.oasis.opendocument.text');
+  zip.file('META-INF/manifest.xml',
+    '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:x">' +
+    '<manifest:file-entry manifest:full-path="content.xml">' +
+    '<manifest:encryption-data manifest:checksum="x"/></manifest:file-entry></manifest:manifest>');
+  zip.file('content.xml', 'encrypted-bytes');
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+// --- OLE2 / CFB ------------------------------------------------------------
+
+const SECTOR = 512;
+const FREESECT = 0xffffffff, ENDOFCHAIN = 0xfffffffe, FATSECT = 0xfffffffd;
+
+// Build a minimal CFB. Every stream is stored via the FAT (size >= 4096) so the
+// reader never needs the mini stream. streams: [{ name, type=2, data }].
+function buildCfb(streams) {
+  const w16 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; };
+  const w32 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff; };
+
+  const numEntries = 1 + streams.length;
+  const dirSectors = Math.ceil(numEntries / 4);
+  const layout = [];
+  let next = 1 + dirSectors; // sector 0 = FAT, then directory
+  for (const s of streams) {
+    const ns = Math.ceil(s.data.length / SECTOR);
+    layout.push({ start: next, ns });
+    next += ns;
+  }
+  const totalSectors = next;
+  const buf = new Uint8Array(SECTOR + totalSectors * SECTOR);
+
+  // Header.
+  [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].forEach((b, i) => { buf[i] = b; });
+  w16(buf, 0x1e, 9);            // sector shift -> 512
+  w16(buf, 0x20, 6);            // mini sector shift -> 64
+  w32(buf, 0x2c, 1);            // number of FAT sectors
+  w32(buf, 0x30, 1);            // first directory sector
+  w32(buf, 0x38, 4096);         // mini stream cutoff
+  w32(buf, 0x3c, ENDOFCHAIN);   // first mini FAT
+  w32(buf, 0x40, 0);            // number of mini FAT sectors
+  w32(buf, 0x44, ENDOFCHAIN);   // first DIFAT
+  w32(buf, 0x48, 0);            // number of DIFAT sectors
+  for (let i = 0; i < 109; i++) w32(buf, 0x4c + i * 4, i === 0 ? 0 : FREESECT);
+
+  // FAT (sector 0).
+  const fat = new Uint32Array(128).fill(FREESECT);
+  fat[0] = FATSECT;
+  for (let k = 1; k <= dirSectors; k++) fat[k] = (k < dirSectors) ? k + 1 : ENDOFCHAIN;
+  layout.forEach((l) => {
+    for (let j = 0; j < l.ns; j++) fat[l.start + j] = (j < l.ns - 1) ? l.start + j + 1 : ENDOFCHAIN;
+  });
+  const fatBase = SECTOR + 0 * SECTOR;
+  for (let i = 0; i < 128; i++) w32(buf, fatBase + i * 4, fat[i]);
+
+  // Directory entries.
+  function writeEntry(idx, name, type, start, size) {
+    const base = SECTOR + (1 * SECTOR) + idx * 128;
+    for (let c = 0; c < name.length; c++) w16(buf, base + c * 2, name.charCodeAt(c));
+    w16(buf, base + 0x40, name.length * 2 + 2); // name length incl. null
+    buf[base + 0x42] = type;
+    w32(buf, base + 0x44, FREESECT); // left
+    w32(buf, base + 0x48, FREESECT); // right
+    w32(buf, base + 0x4c, FREESECT); // child
+    w32(buf, base + 0x74, start);
+    w32(buf, base + 0x78, size);
+  }
+  writeEntry(0, 'Root Entry', 5, ENDOFCHAIN, 0);
+  streams.forEach((s, i) => writeEntry(i + 1, s.name, s.type || 2, layout[i].start, s.data.length));
+
+  // Stream data.
+  streams.forEach((s, i) => { buf.set(s.data, SECTOR + layout[i].start * SECTOR); });
+
+  return buf;
+}
+
+function biffRecord(id, data) {
+  const out = new Uint8Array(4 + data.length);
+  out[0] = id & 0xff; out[1] = (id >> 8) & 0xff;
+  out[2] = data.length & 0xff; out[3] = (data.length >> 8) & 0xff;
+  out.set(data, 4);
+  return out;
+}
+function padTo(bytes, n) { const out = new Uint8Array(Math.max(n, bytes.length)); out.set(bytes); return out; }
+function concatBytes(arr) {
+  let total = 0; arr.forEach((a) => { total += a.length; });
+  const out = new Uint8Array(total); let o = 0;
+  arr.forEach((a) => { out.set(a, o); o += a.length; });
+  return out;
+}
+
+function buildProtectedXls() {
+  const wb = concatBytes([
+    biffRecord(0x0809, new Uint8Array(16)),         // BOF
+    biffRecord(0x0012, new Uint8Array([1, 0])),     // PROTECT
+    biffRecord(0x0013, new Uint8Array([0xcd, 0xab])), // PASSWORD hash
+    biffRecord(0x0019, new Uint8Array([1, 0])),     // WINDOWPROTECT
+    biffRecord(0x0063, new Uint8Array([1, 0])),     // OBJECTPROTECT
+    biffRecord(0x000a, new Uint8Array(0))           // EOF
+  ]);
+  return buildCfb([{ name: 'Workbook', data: padTo(wb, 4096) }]);
+}
+
+function buildEncryptedXls() {
+  const wb = concatBytes([
+    biffRecord(0x0809, new Uint8Array(16)),
+    biffRecord(0x002f, new Uint8Array([1, 0, 1, 0])) // FILEPASS
+  ]);
+  return buildCfb([{ name: 'Workbook', data: padTo(wb, 4096) }]);
+}
+
+function buildVbaCfb() {
+  const text =
+    'ID="{00000000-0000-0000-0000-000000000000}"\r\n' +
+    'CMG="0123456789ABCDEF0123"\r\n' +
+    'DPB="00112233445566778899AABB"\r\n' +
+    'GC="1A2B3C4D5E"\r\n';
+  const data = padTo(new Uint8Array(Buffer.from(text, 'latin1')), 4096);
+  return buildCfb([{ name: 'PROJECT', type: 2, data }]);
+}
+
+function buildEncryptedOoxmlOle2() {
+  return buildCfb([
+    { name: 'EncryptionInfo', data: new Uint8Array(4096) },
+    { name: 'EncryptedPackage', data: new Uint8Array(4096) }
+  ]);
+}
+
 module.exports = {
-  buildRc4Pdf, buildAesPdfWithObjStm, buildUserPasswordPdf, buildAes256Pdf,
-  buildUnicodePst, readPstPassword, pstCrc
+  buildRc4Pdf, buildAesPdfWithObjStm, buildUserPasswordPdf, buildAes256R6Pdf,
+  buildUnicodePst, readPstPassword, pstCrc,
+  buildProtectedOds, buildEncryptedOdt,
+  buildCfb, buildProtectedXls, buildEncryptedXls, buildVbaCfb, buildEncryptedOoxmlOle2
 };

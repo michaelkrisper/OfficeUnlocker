@@ -10,6 +10,14 @@
 const assert = require('assert');
 const JSZip = require('jszip');
 const OfficeUnlocker = require('../unlock.js');
+const PdfUnlock = require('../pdfunlock.js');
+const PstUnlock = require('../pstunlock.js');
+const BinCrypto = require('../bincrypto.js');
+const fixtures = require('./fixtures.js');
+
+const fromHex = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
+const toHex = (u8) => Array.from(u8).map((b) => b.toString(16).padStart(2, '0')).join('');
+const latin1 = (u8) => Buffer.from(u8).toString('latin1');
 
 let passed = 0;
 let failed = 0;
@@ -179,6 +187,114 @@ async function readEntry(buffer, path) {
 
     const { removed } = await OfficeUnlocker.unlock(input);
     assert.deepStrictEqual(removed, [], 'reported removals on an unprotected file');
+  });
+
+  // --- Crypto primitives (known-answer vectors) ----------------------------
+
+  await test('crypto primitives match published test vectors', () => {
+    assert.strictEqual(toHex(BinCrypto.md5(new Uint8Array(0))), 'd41d8cd98f00b204e9800998ecf8427e');
+    assert.strictEqual(toHex(BinCrypto.md5(fromHex('616263'))), '900150983cd24fb0d6963f7d28e17f72');
+    assert.strictEqual(
+      toHex(BinCrypto.rc4(fromHex('4b6579'), fromHex('506c61696e74657874'))).toUpperCase(),
+      'BBF316E8D940AF0AD3'
+    );
+    // FIPS-197 single block, AES-128 and AES-256.
+    assert.strictEqual(
+      toHex(BinCrypto._decryptBlockForTest(fromHex('69c4e0d86a7b0430d8cdb78070b4c55a'), fromHex('000102030405060708090a0b0c0d0e0f'))),
+      '00112233445566778899aabbccddeeff'
+    );
+    assert.strictEqual(
+      toHex(BinCrypto._decryptBlockForTest(fromHex('8ea2b7ca516745bfeafc49904b496089'), fromHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'))),
+      '00112233445566778899aabbccddeeff'
+    );
+  });
+
+  // --- PDF ------------------------------------------------------------------
+
+  await test('removes RC4 restrictions and decrypts a PDF', () => {
+    const { bytes, secretContent, secretString } = fixtures.buildRc4Pdf();
+    const res = PdfUnlock.unlock(bytes);
+    const out = latin1(res.bytes);
+    assert.ok(res.changed, 'unlock did not report a change');
+    assert.ok(!/\/Encrypt/.test(out), '/Encrypt still present');
+    assert.ok(out.includes(secretContent), 'content stream was not decrypted');
+    assert.ok(out.toLowerCase().includes(Buffer.from(secretString, 'latin1').toString('hex')),
+      'string was not decrypted');
+  });
+
+  await test('removes AES-128 restrictions and expands object streams', () => {
+    const { bytes, secretContent } = fixtures.buildAesPdfWithObjStm();
+    const res = PdfUnlock.unlock(bytes);
+    const out = latin1(res.bytes);
+    assert.ok(res.changed);
+    assert.ok(!/\/Encrypt/.test(out), '/Encrypt still present');
+    assert.ok(out.includes(secretContent), 'AES content stream was not decrypted');
+    assert.ok(/\/Marker/.test(out), 'object-stream object was not promoted');
+    assert.ok(out.toLowerCase().includes(Buffer.from('objstm-worked', 'latin1').toString('hex')),
+      'object-stream string was not decrypted');
+  });
+
+  await test('refuses a PDF that needs an open password', () => {
+    const bytes = fixtures.buildUserPasswordPdf();
+    assert.throws(() => PdfUnlock.unlock(bytes), (err) => err.code === 'ENCRYPTED');
+  });
+
+  await test('reports AES-256 PDFs as unsupported', () => {
+    const bytes = fixtures.buildAes256Pdf();
+    assert.throws(() => PdfUnlock.unlock(bytes), (err) => err.code === 'UNSUPPORTED');
+  });
+
+  await test('leaves an unencrypted PDF unchanged', () => {
+    const plain = new Uint8Array(Buffer.from(
+      '%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1'));
+    const res = PdfUnlock.unlock(plain);
+    assert.ok(!res.changed, 'reported a change on an unencrypted PDF');
+  });
+
+  // --- PST ------------------------------------------------------------------
+
+  await test('removes the password from a Unicode PST', () => {
+    const pst = fixtures.buildUnicodePst(0x12345678);
+    assert.ok(PstUnlock.isPst(pst));
+    const res = PstUnlock.unlock(pst);
+    assert.ok(res.changed && res.hadPassword, 'password was not removed');
+    assert.strictEqual(fixtures.readPstPassword(res.bytes), 0, 'password value not zeroed');
+    // The rewritten block must carry a consistent CRC.
+    const cb = 46, tOff = 0x800 + Math.ceil((cb + 16) / 64) * 64 - 16;
+    const stored = (res.bytes[tOff + 4] | (res.bytes[tOff + 5] << 8) | (res.bytes[tOff + 6] << 16) | (res.bytes[tOff + 7] << 24)) >>> 0;
+    assert.strictEqual(stored, fixtures.pstCrc(res.bytes, 0x800, cb), 'block CRC not recomputed');
+  });
+
+  await test('treats a PST with no password as already unlocked', () => {
+    const pst = fixtures.buildUnicodePst(0);
+    const res = PstUnlock.unlock(pst);
+    assert.ok(!res.changed && !res.hadPassword, 'reported a change on a password-less PST');
+  });
+
+  await test('PST removal is idempotent', () => {
+    const pst = fixtures.buildUnicodePst(0xdeadbeef);
+    const once = PstUnlock.unlock(pst);
+    const twice = PstUnlock.unlock(once.bytes);
+    assert.ok(once.changed && !twice.changed, 'second pass should be a no-op');
+  });
+
+  // --- Dispatcher routing ---------------------------------------------------
+
+  await test('OfficeUnlocker.unlock routes PDF and PST by content', async () => {
+    const pdf = fixtures.buildRc4Pdf().bytes;
+    const pdfRes = await OfficeUnlocker.unlock(pdf);
+    assert.strictEqual(pdfRes.kind, 'pdf');
+    assert.deepStrictEqual(pdfRes.removed, ['PDF restrictions']);
+
+    const pst = fixtures.buildUnicodePst(0x12345678);
+    const pstRes = await OfficeUnlocker.unlock(pst);
+    assert.strictEqual(pstRes.kind, 'pst');
+    assert.deepStrictEqual(pstRes.removed, ['PST password']);
+  });
+
+  await test('isSupported recognises pdf and pst', () => {
+    assert.ok(OfficeUnlocker.isSupported('statement.pdf'));
+    assert.ok(OfficeUnlocker.isSupported('archive.PST'));
   });
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');

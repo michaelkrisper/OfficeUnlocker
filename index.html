@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OfficeUnlocker — Remove protection from Excel, Word &amp; PowerPoint</title>
+  <title>OfficeUnlocker — Remove protection from Office, PDF &amp; Outlook files</title>
   <meta name="description"
-        content="Remove editing, sheet and document protection from Office files (.xlsx, .docx, .pptx) right in your browser. 100% private — nothing is ever uploaded.">
+        content="Remove editing/sheet/document protection from Office files (.xlsx, .docx, .pptx), usage restrictions from PDFs, and the password from Outlook .pst files — right in your browser. 100% private, nothing is ever uploaded.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon"
         href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='11' width='18' height='11' rx='2'/><path d='M7 11V7a5 5 0 0 1 9.9-1'/></svg>">
@@ -307,8 +307,8 @@
       </div>
       <h1>OfficeUnlocker</h1>
       <p class="subtitle">
-        Remove editing, sheet and document protection from your Office files —
-        entirely in your browser.
+        Remove editing protection from Office files, usage restrictions from
+        PDFs and the password from Outlook archives — entirely in your browser.
       </p>
     </div>
 
@@ -327,8 +327,10 @@
           <span class="badge">XLSX</span>
           <span class="badge">DOCX</span>
           <span class="badge">PPTX</span>
+          <span class="badge">PDF</span>
+          <span class="badge">PST</span>
         </div>
-        <input type="file" id="fileInput" accept=".xlsx,.docx,.pptx">
+        <input type="file" id="fileInput" accept=".xlsx,.docx,.pptx,.pdf,.pst">
       </label>
 
       <div class="file-chip" id="fileChip">
@@ -360,11 +362,14 @@
       </div>
 
       <p class="note">
-        <strong>What this does:</strong> removes editing restrictions such as
-        sheet protection, workbook protection and document read-only protection.
-        It <strong>cannot</strong> open files locked with an
-        <em>open password</em> (full-file encryption) — those require the
-        original password and are detected automatically.
+        <strong>What this does:</strong> removes editing restrictions from Office
+        files (sheet, workbook and document protection), usage restrictions from
+        PDFs (printing, copying, editing) and the password from Outlook
+        <em>.pst</em> archives. It <strong>cannot</strong> open files locked with
+        an <em>open password</em> (full-file encryption, including PDF
+        view passwords) — those require the original password and are detected
+        automatically. PDF and PST support is new — your original file is never
+        modified, so keep it until you've confirmed the result.
       </p>
     </div>
   </main>
@@ -379,6 +384,14 @@
     integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
     crossorigin="anonymous"
     referrerpolicy="no-referrer"></script>
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"
+    integrity="sha512-g2TeAWw5GPnX7z0Kn8nFbYfeHcvAu/tx6d6mrLe/90mkCxO+RcptyYpksUz35EO337F83bZwcmUyHiHamspkfg=="
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"></script>
+  <script src="bincrypto.js"></script>
+  <script src="pdfunlock.js"></script>
+  <script src="pstunlock.js"></script>
   <script src="unlock.js"></script>
   <script>
     (function () {
@@ -424,7 +437,7 @@
       function selectFile(file) {
         if (!file) return;
         if (!OfficeUnlocker.isSupported(file.name)) {
-          setStatus('Unsupported file type. Please choose an .xlsx, .docx or .pptx file.', 'error');
+          setStatus('Unsupported file type. Please choose an .xlsx, .docx, .pptx, .pdf or .pst file.', 'error');
           return;
         }
         selectedFile = file;
@@ -491,15 +504,18 @@
           setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 
           if (result.removed.length) {
-            setStatus('Done. Protection removed and download started.', 'success');
+            setStatus('Done. ' + result.removed.join(' + ') + ' removed — download started.', 'success');
           } else {
-            setStatus('No protection was found — your file was already unprotected. Download started anyway.', 'info');
+            setStatus('No protection or password was found — your file was already unlocked. Download started anyway.', 'info');
           }
         } catch (error) {
-          if (error && error.code === 'ENCRYPTED') {
-            setStatus('This file is encrypted with an open password and cannot be unlocked without it.', 'error');
-          } else if (error && error.code === 'INVALID') {
-            setStatus('This does not look like a valid Office file.', 'error');
+          var code = error && error.code;
+          if (code === 'ENCRYPTED') {
+            setStatus('This file needs an open password to view it and cannot be unlocked without it.', 'error');
+          } else if (code === 'UNSUPPORTED' || code === 'PST_UNSUPPORTED') {
+            setStatus(error.message || 'This file uses an encryption variant that is not yet supported.', 'error');
+          } else if (code === 'INVALID' || code === 'PST_INVALID') {
+            setStatus('This does not look like a valid file of that type.', 'error');
           } else {
             setStatus('Something went wrong while processing the file.', 'error');
           }

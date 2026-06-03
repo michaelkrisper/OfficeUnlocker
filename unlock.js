@@ -1,30 +1,36 @@
 /*
  * OfficeUnlocker core logic.
  *
- * Removes editing / sheet / workbook / document protection from Office Open XML
- * documents (.xlsx, .docx, .pptx). These protections are stored as plain XML
- * flags inside the ZIP container, so they can be stripped without knowing the
- * password.
+ * Removes protection from several file types, entirely in the browser:
  *
- * NOTE: This does NOT decrypt files that are protected with an "open password"
- * (full-file AES encryption). Those files are not ZIP archives at all – they are
- * encrypted OLE2 containers – and cannot be opened without the password.
+ *   • Office Open XML (.xlsx, .docx, .pptx) – editing / sheet / workbook /
+ *     document protection, stored as plain XML flags inside a ZIP container and
+ *     stripped without the password.
+ *   • PDF (.pdf) – usage restrictions (printing, copying, editing) from a
+ *     permissions / "owner" password. The document is decrypted and re-saved.
+ *   • Outlook PST (.pst) – the message-store password, which is only a CRC and
+ *     does not encrypt the mail, so it can be cleared outright.
+ *
+ * NOTE: This does NOT decrypt files that require an "open password" to view
+ * them (full-file encryption: OLE2 Office documents or PDF user passwords).
+ * Those cannot be opened without the password and are detected up front.
  *
  * Written in a UMD style so it runs both in the browser (as a global,
  * `window.OfficeUnlocker`) and in Node.js (via `require`) for automated tests.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    // Node.js – pull in JSZip from node_modules for testing.
-    module.exports = factory(require('jszip'));
+    // Node.js – pull in dependencies from node_modules / sibling files.
+    module.exports = factory(require('jszip'), require('./pdfunlock.js'), require('./pstunlock.js'));
   } else {
-    // Browser – JSZip is expected to be loaded globally beforehand.
-    root.OfficeUnlocker = factory(root.JSZip);
+    // Browser – dependencies are expected to be loaded globally beforehand.
+    root.OfficeUnlocker = factory(root.JSZip, root.PdfUnlock, root.PstUnlock);
   }
-})(typeof self !== 'undefined' ? self : this, function (JSZip) {
+})(typeof self !== 'undefined' ? self : this, function (JSZip, PdfUnlock, PstUnlock) {
   'use strict';
 
-  var SUPPORTED_EXTENSIONS = ['xlsx', 'docx', 'pptx'];
+  var OOXML_EXTENSIONS = ['xlsx', 'docx', 'pptx'];
+  var SUPPORTED_EXTENSIONS = OOXML_EXTENSIONS.concat(['pdf', 'pst']);
 
   // OLE2 / Compound File Binary magic number. Files starting with these bytes
   // are encrypted Office documents (open-password protected) and are NOT ZIPs.
@@ -39,6 +45,16 @@
     for (var i = 0; i < OLE2_MAGIC.length; i++) {
       if (bytes[i] !== OLE2_MAGIC[i]) return false;
     }
+    return true;
+  }
+
+  // Magic numbers used to route by content rather than trusting the extension.
+  var PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];             // "%PDF"
+  var PST_MAGIC = [0x21, 0x42, 0x44, 0x4e];             // "!BDN"
+
+  function startsWith(bytes, magic) {
+    if (!bytes || bytes.length < magic.length) return false;
+    for (var i = 0; i < magic.length; i++) if (bytes[i] !== magic[i]) return false;
     return true;
   }
 
@@ -88,26 +104,59 @@
     return null;
   }
 
+  // Read the full bytes as a Uint8Array (handles Blob / ArrayBuffer / views).
+  async function toBytes(data) {
+    if (typeof Blob !== 'undefined' && data instanceof Blob) {
+      return new Uint8Array(await data.arrayBuffer());
+    }
+    if (data instanceof ArrayBuffer) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return new Uint8Array(0);
+  }
+
+  function isNodeEnv() {
+    return typeof process !== 'undefined' && process.versions && process.versions.node;
+  }
+
+  // Wrap raw output bytes as a Node Buffer (tests) or a browser Blob (download).
+  function toOutput(bytes) {
+    if (isNodeEnv()) return Buffer.from(bytes);
+    return new Blob([bytes], { type: 'application/octet-stream' });
+  }
+
   /**
-   * Unlocks an Office file.
+   * Unlocks a supported file. Routes by content (magic bytes) so a mislabelled
+   * extension still works.
    *
    * @param {ArrayBuffer|Uint8Array|Buffer|Blob} data Raw file bytes.
-   * @returns {Promise<{blob: (Blob|Buffer), removed: string[]}>}
-   *   `blob` is the unlocked file, `removed` lists which protections were stripped.
+   * @returns {Promise<{blob: (Blob|Buffer), removed: string[], kind: string}>}
+   *   `blob` is the unlocked file, `removed` lists which protections were
+   *   stripped, `kind` is one of 'ooxml' | 'pdf' | 'pst'.
    */
   async function unlock(data) {
-    // Peek at the first bytes to detect encrypted (OLE2) files up front.
-    var head;
-    if (typeof Blob !== 'undefined' && data instanceof Blob) {
-      head = new Uint8Array(await data.slice(0, 8).arrayBuffer());
-    } else if (data instanceof ArrayBuffer) {
-      head = new Uint8Array(data, 0, Math.min(8, data.byteLength));
-    } else if (ArrayBuffer.isView(data)) {
-      // Covers Node Buffer, Uint8Array, etc. Honour the view's byteOffset.
-      head = data.subarray(0, 8);
-    } else {
-      head = new Uint8Array(0);
+    var bytes = await toBytes(data);
+
+    if (startsWith(bytes, PDF_MAGIC)) {
+      if (!PdfUnlock) throw makeError('INVALID', 'PDF support is not available.');
+      var pdfRes = PdfUnlock.unlock(bytes);
+      return { blob: toOutput(pdfRes.bytes), removed: pdfRes.changed ? ['PDF restrictions'] : [], kind: 'pdf' };
     }
+
+    if (startsWith(bytes, PST_MAGIC)) {
+      if (!PstUnlock) throw makeError('INVALID', 'PST support is not available.');
+      var pstRes = PstUnlock.unlock(bytes);
+      return { blob: toOutput(pstRes.bytes), removed: pstRes.changed ? ['PST password'] : [], kind: 'pst' };
+    }
+
+    return unlockOoxml(data, bytes);
+  }
+
+  function makeError(code, message) { var e = new Error(message); e.code = code; return e; }
+
+  // --- Office Open XML (.xlsx / .docx / .pptx) -------------------------------
+
+  async function unlockOoxml(data, bytes) {
+    var head = bytes.subarray(0, 8);
 
     if (looksEncrypted(head)) {
       var err = new Error(
@@ -153,8 +202,7 @@
       }
     }
 
-    var isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-    var outputType = isNode ? 'nodebuffer' : 'blob';
+    var outputType = isNodeEnv() ? 'nodebuffer' : 'blob';
     var blob = await zip.generateAsync({
       type: outputType,
       compression: 'DEFLATE',
@@ -162,7 +210,7 @@
       mimeType: 'application/octet-stream'
     });
 
-    return { blob: blob, removed: removed };
+    return { blob: blob, removed: removed, kind: 'ooxml' };
   }
 
   return {

@@ -6,7 +6,7 @@ module.exports = [
   js.configs.recommended,
   {
     // Shared core logic – runs in both the browser and Node.js (UMD).
-    files: ['unlock.js'],
+    files: ['unlock.js', 'bincrypto.js', 'pdfunlock.js', 'pstunlock.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'script',
@@ -17,8 +17,11 @@ module.exports = [
         window: 'readonly',
         Blob: 'readonly',
         process: 'readonly',
+        Buffer: 'readonly',
         ArrayBuffer: 'readonly',
-        Uint8Array: 'readonly'
+        Uint8Array: 'readonly',
+        Uint32Array: 'readonly',
+        BigInt: 'readonly'
       }
     },
     rules: {

@@ -348,6 +348,16 @@ async function readEntry(buffer, path) {
     assert.ok(sawProtect, 'no protection records were seen');
   });
 
+  await test('removes "Restrict Editing" from a legacy .doc', () => {
+    const input = fixtures.buildProtectedDoc();
+    const out = OleLock.unlock(input);
+    assert.ok(out.removed.includes('document protection'));
+    const tbl = Ole2.parse(out.bytes).readStream('0Table');
+    // fcDop = 16, fProtEnabled is bit 0x02 of Dop byte 0x07.
+    assert.strictEqual(tbl[16 + 0x07] & 0x02, 0, 'fProtEnabled not cleared');
+    assert.strictEqual(tbl[16 + 0x07], 0x09, 'other Dop bits were disturbed');
+  });
+
   await test('detects an encrypted legacy .xls (FILEPASS)', () => {
     const input = fixtures.buildEncryptedXls();
     assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');

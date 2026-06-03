@@ -41,8 +41,10 @@ by the matching unlocker — all in memory, nothing uploaded:
   `/Encrypt`, so the restrictions are gone.
 - **Legacy binary Office** (`.xls`/`.doc`/`.ppt`) — these are OLE2 compound
   files. For Excel the BIFF protection records (`PROTECT`, `PASSWORD`,
-  `WINDOWPROTECT`, `OBJECTPROTECT`, …) are zeroed in place; encrypted files
-  (`FILEPASS`) are detected and reported.
+  `WINDOWPROTECT`, `OBJECTPROTECT`, …) are zeroed in place. For Word, "Restrict
+  Editing" is removed by clearing the `Dop.fProtEnabled` switch (located via the
+  FIB's `fcDop`). Encrypted files (`FILEPASS` / Word `fEncrypted`) are detected
+  and reported.
 - **VBA projects** — the project password lives in the `PROJECT` stream's `DPB`
   key; renaming it (a same‑length edit) makes the VBA editor treat the project as
   unprotected. Works for macro‑enabled OOXML (`vbaProject.bin`) and legacy files.
@@ -60,10 +62,11 @@ touched.
 | Sheet / workbook / document protection (Office OOXML) | ✅ |
 | OpenDocument sheet / section protection (`.ods`/`.odt`/`.odp`) | ✅ |
 | Legacy Excel protection records (`.xls`, BIFF) | ✅ |
+| Legacy Word "Restrict Editing" (`.doc`, `Dop.fProtEnabled`) | ✅ |
 | VBA macro project password (OOXML &amp; legacy) | ✅ |
 | PDF usage restrictions — RC4, AES‑128, AES‑256 (R6), empty user password | ✅ |
 | Outlook PST password — ANSI &amp; Unicode, none/compressible encoding | ✅ |
-| Legacy Word / PowerPoint *content* protection (beyond VBA &amp; encryption check) | ❌ |
+| Legacy PowerPoint content protection (beyond VBA &amp; encryption check) | ❌ |
 | Outlook PST "high" (cyclic) encoding | ❌ |
 | **Open password (full‑file encryption / PDF view password)** | ❌ |
 

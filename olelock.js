@@ -38,6 +38,7 @@
     BIFF_OBJECTPROTECT, BIFF_SCENPROTECT, BIFF_SHEETPROTECTION];
 
   function u16(b, o) { return b[o] | (b[o + 1] << 8); }
+  function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
 
   // Remove the VBA project password by renaming the DPB key in the PROJECT
   // stream. Returns true if a change was made.
@@ -83,15 +84,35 @@
     }
   }
 
-  // Reject password-encrypted legacy Word documents up front.
-  function checkWordEncrypted(cfb) {
+  // Legacy Word: reject if encrypted, otherwise clear the document-protection
+  // ("Restrict Editing") master switch fProtEnabled in the Dop.
+  //
+  // The Dop lives in the table stream at FibRgFcLcb97.fcDop (FIB offset 0x192,
+  // index 31 of the FC/LCB array). Dop byte 0x07 holds fProtEnabled (0x02);
+  // clearing it disables protection regardless of the stored password hash.
+  function unlockWordIn(cfb, removed) {
     var wd = cfb.find('WordDocument');
     if (!wd) return;
-    var head = cfb.readStream(wd);
-    if (!head || head.length < 12) return;
-    if (u16(head, 0) !== 0xa5ec) return;       // not a valid FIB
-    var flags = u16(head, 0x0a);
+    var fib = cfb.readStream(wd);
+    if (!fib || fib.length < 0x19a) return;
+    if (u16(fib, 0) !== 0xa5ec) return;            // not a valid FIB
+    var flags = u16(fib, 0x0a);
     if (flags & 0x0100) throw err('ENCRYPTED', ENCRYPTED_MSG); // fEncrypted
+
+    var tableName = (flags & 0x0200) ? '1Table' : '0Table';
+    var fcDop = u32(fib, 0x192);
+    var lcbDop = u32(fib, 0x196);
+    if (lcbDop < 8) return;                          // no Dop present
+
+    var table = cfb.find(tableName);
+    if (!table) return;
+    var tbl = cfb.readStream(table);
+    var off = fcDop + 0x07;
+    if (!tbl || off >= tbl.length) return;
+    if (tbl[off] & 0x02) {
+      cfb.patchStream(table, off, new Uint8Array([tbl[off] & ~0x02]));
+      if (removed.indexOf('document protection') === -1) removed.push('document protection');
+    }
   }
 
   /**
@@ -116,7 +137,7 @@
     }
 
     var removed = [];
-    checkWordEncrypted(cfb);
+    unlockWordIn(cfb, removed);
     unlockExcelIn(cfb, removed);
     if (unlockVbaIn(cfb)) removed.push('VBA project password');
 

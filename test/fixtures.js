@@ -398,6 +398,27 @@ function buildEncryptedXls() {
   return buildCfb([{ name: 'Workbook', data: padTo(wb, 4096) }]);
 }
 
+// Legacy Word doc with "Restrict Editing" (Dop.fProtEnabled) turned on.
+function buildProtectedDoc() {
+  const w16 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; };
+  const w32 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff; };
+  const fib = new Uint8Array(4096);
+  w16(fib, 0x00, 0xa5ec);   // wIdent
+  w16(fib, 0x02, 0x00c1);   // nFib (Word 97+)
+  w16(fib, 0x0a, 0x0000);   // flags: fEncrypted off, fWhichTblStm=0 -> "0Table"
+  const fcDop = 16;
+  w32(fib, 0x192, fcDop);   // fcDop
+  w32(fib, 0x196, 0x20);    // lcbDop
+
+  const table = new Uint8Array(4096);
+  table[fcDop + 0x07] = 0x0b; // fProtEnabled (0x02) + a couple of other bits
+
+  return buildCfb([
+    { name: 'WordDocument', data: fib },
+    { name: '0Table', data: table }
+  ]);
+}
+
 function buildVbaCfb() {
   const text =
     'ID="{00000000-0000-0000-0000-000000000000}"\r\n' +
@@ -419,5 +440,5 @@ module.exports = {
   buildRc4Pdf, buildAesPdfWithObjStm, buildUserPasswordPdf, buildAes256R6Pdf,
   buildUnicodePst, readPstPassword, pstCrc,
   buildProtectedOds, buildEncryptedOdt,
-  buildCfb, buildProtectedXls, buildEncryptedXls, buildVbaCfb, buildEncryptedOoxmlOle2
+  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2
 };

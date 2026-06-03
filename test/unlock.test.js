@@ -286,6 +286,13 @@ async function readEntry(buffer, path) {
     assert.ok(once.changed && !twice.changed, 'second pass should be a no-op');
   });
 
+  await test('removes the password from a cyclic ("high") encoded PST', () => {
+    const pst = fixtures.buildUnicodePst(0xcafef00d, 2); // crypt = cyclic
+    const res = PstUnlock.unlock(pst);
+    assert.ok(res.changed && res.hadPassword, 'cyclic password not removed');
+    assert.strictEqual(fixtures.readPstPassword(res.bytes, 2), 0, 'cyclic password not zeroed');
+  });
+
   // --- Dispatcher routing ---------------------------------------------------
 
   await test('OfficeUnlocker.unlock routes PDF and PST by content', async () => {

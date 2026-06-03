@@ -201,17 +201,7 @@ function buildAes256R6Pdf() {
 
 // --- PST -------------------------------------------------------------------
 
-const PERMUTE_DECODE = [
-  71, 241, 180, 230, 11, 106, 114, 72, 133, 78, 158, 235, 226, 248, 148, 83, 224, 187, 160, 2, 232, 90, 9, 171, 219, 227, 186, 198, 124, 195, 16, 221,
-  57, 5, 150, 48, 245, 55, 96, 130, 140, 201, 19, 74, 107, 29, 243, 251, 143, 38, 151, 202, 145, 23, 1, 196, 50, 45, 110, 49, 149, 255, 217, 35,
-  209, 0, 94, 121, 220, 68, 59, 26, 40, 197, 97, 87, 32, 144, 61, 131, 185, 67, 190, 103, 210, 70, 66, 118, 192, 109, 91, 126, 178, 15, 22, 41,
-  60, 169, 3, 84, 13, 218, 93, 223, 246, 183, 199, 98, 205, 141, 6, 211, 105, 92, 134, 214, 20, 247, 165, 102, 117, 172, 177, 233, 69, 33, 112, 12,
-  135, 159, 116, 164, 34, 76, 111, 191, 31, 86, 170, 46, 179, 120, 51, 80, 176, 163, 146, 188, 207, 25, 28, 167, 99, 203, 30, 77, 62, 75, 27, 155,
-  79, 231, 240, 238, 173, 58, 181, 89, 4, 234, 64, 85, 37, 81, 229, 122, 137, 56, 104, 82, 123, 252, 39, 174, 215, 189, 250, 7, 244, 204, 142, 95,
-  239, 53, 156, 132, 43, 21, 213, 119, 52, 73, 182, 18, 10, 127, 113, 136, 253, 157, 24, 65, 125, 147, 216, 88, 44, 206, 254, 36, 175, 222, 184, 54,
-  200, 161, 128, 166, 153, 152, 168, 47, 14, 129, 101, 115, 228, 194, 162, 138, 212, 225, 17, 208, 8, 139, 42, 242, 237, 154, 100, 63, 193, 108, 249, 236];
-const PERMUTE_ENCODE = new Uint8Array(256);
-for (let e = 0; e < 256; e++) PERMUTE_ENCODE[PERMUTE_DECODE[e]] = e;
+const PstUnlock = require('../pstunlock.js');
 
 function pstCrc(bytes, start, len) {
   const table = new Uint32Array(256);
@@ -220,7 +210,8 @@ function pstCrc(bytes, start, len) {
 }
 
 // Builds a minimal Unicode PST whose message store has PidTagPstPassword set.
-function buildUnicodePst(passwordCrc) {
+// crypt: 0 = none, 1 = permute (default), 2 = cyclic ("high").
+function buildUnicodePst(passwordCrc, crypt = 1) {
   const NBT = 0x400, BBT = 0x600, BLOCK = 0x800;
   const file = new Uint8Array(0x1000);
   const w16 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; };
@@ -228,7 +219,7 @@ function buildUnicodePst(passwordCrc) {
 
   file[0] = 0x21; file[1] = 0x42; file[2] = 0x44; file[3] = 0x4e; // !BDN
   w16(file, 0x0a, 23);            // Unicode
-  file[0x201] = 1;               // permute
+  file[0x201] = crypt;
   w32(file, 0xd8, 0x10); file[0xe0] = NBT & 0xff; file[0xe1] = (NBT >> 8) & 0xff; // NBT root
   w32(file, 0xe8, 0x20); file[0xf0] = BBT & 0xff; file[0xf1] = (BBT >> 8) & 0xff; // BBT root
 
@@ -237,16 +228,16 @@ function buildUnicodePst(passwordCrc) {
   w32(file, NBT + 0, 0x21); file[NBT + 8] = B;
   file[NBT + 488] = 1; file[NBT + 489] = 1; file[NBT + 490] = 32; file[NBT + 491] = 0;
 
-  // Heap-on-Node / PC block payload
-  const d = new Uint8Array(64);
-  d[2] = 0xec; d[3] = 0xbc; w32(d, 4, 0x20);          // HNHDR (hidUserRoot = idx1)
-  d[12] = 0xb5; d[13] = 2; d[14] = 6; d[15] = 0; w32(d, 16, 0x40); // BTHHEADER (hidRoot = idx2)
-  w16(d, 20, 0x67ff); w16(d, 22, 0x0003); w32(d, 24, passwordCrc);  // PidTagPstPassword
-  w16(d, 28, 0x3001); w16(d, 30, 0x001f); w32(d, 32, 0x40);         // display name (dummy)
-  w16(d, 36, 2); w16(d, 38, 0); w16(d, 40, 12); w16(d, 42, 20); w16(d, 44, 36); // HNPAGEMAP
-  w16(d, 0, 36);                                                    // ibHnpm
+  // Heap-on-Node / PC block payload (plaintext, then encoded in place).
   const cb = 46;
-  for (let i = 0; i < cb; i++) file[BLOCK + i] = PERMUTE_ENCODE[d[i]];
+  w16(file, BLOCK + 2, 0); file[BLOCK + 2] = 0xec; file[BLOCK + 3] = 0xbc; w32(file, BLOCK + 4, 0x20);
+  file[BLOCK + 12] = 0xb5; file[BLOCK + 13] = 2; file[BLOCK + 14] = 6; file[BLOCK + 15] = 0; w32(file, BLOCK + 16, 0x40);
+  w16(file, BLOCK + 20, 0x67ff); w16(file, BLOCK + 22, 0x0003); w32(file, BLOCK + 24, passwordCrc);
+  w16(file, BLOCK + 28, 0x3001); w16(file, BLOCK + 30, 0x001f); w32(file, BLOCK + 32, 0x40);
+  w16(file, BLOCK + 36, 2); w16(file, BLOCK + 38, 0); w16(file, BLOCK + 40, 12); w16(file, BLOCK + 42, 20); w16(file, BLOCK + 44, 36);
+  w16(file, BLOCK + 0, 36); // ibHnpm
+  PstUnlock._encodeBlock(file, BLOCK, cb, crypt, B);
+
   const aligned = Math.ceil((cb + 16) / 64) * 64;
   const tOff = BLOCK + aligned - 16;
   w16(file, tOff, cb); w32(file, tOff + 4, pstCrc(file, BLOCK, cb)); w32(file, tOff + 8, B);
@@ -259,9 +250,9 @@ function buildUnicodePst(passwordCrc) {
   return file;
 }
 
-function readPstPassword(bytes, BLOCK = 0x800, cb = 46) {
-  const dec = new Uint8Array(cb);
-  for (let i = 0; i < cb; i++) dec[i] = PERMUTE_DECODE[bytes[BLOCK + i]];
+function readPstPassword(bytes, crypt = 1, BLOCK = 0x800, cb = 46) {
+  const dec = bytes.slice(BLOCK, BLOCK + cb);
+  PstUnlock._decodeBlock(dec, 0, cb, crypt, 4);
   return (dec[24] | (dec[25] << 8) | (dec[26] << 16) | (dec[27] << 24)) >>> 0;
 }
 

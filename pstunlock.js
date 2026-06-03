@@ -61,6 +61,32 @@
     return enc;
   })();
 
+  // "High" (cyclic) encoding tables from [MS-PST] 5.2.
+  var HIGH1 = new Uint8Array([
+    65, 54, 19, 98, 168, 33, 110, 187, 244, 22, 204, 4, 127, 100, 232, 93, 30, 242, 203, 42, 116, 197, 94, 53, 210, 149, 71, 158, 150, 45, 154, 136,
+    76, 125, 132, 63, 219, 172, 49, 182, 72, 95, 246, 196, 216, 57, 139, 231, 35, 59, 56, 142, 200, 193, 223, 37, 177, 32, 165, 70, 96, 78, 156, 251,
+    170, 211, 86, 81, 69, 124, 85, 0, 7, 201, 43, 157, 133, 155, 9, 160, 143, 173, 179, 15, 99, 171, 137, 75, 215, 167, 21, 90, 113, 102, 66, 191,
+    38, 74, 107, 152, 250, 234, 119, 83, 178, 112, 5, 44, 253, 89, 58, 134, 126, 206, 6, 235, 130, 120, 87, 199, 141, 67, 175, 180, 28, 212, 91, 205,
+    226, 233, 39, 79, 195, 8, 114, 128, 207, 176, 239, 245, 40, 109, 190, 48, 77, 52, 146, 213, 14, 60, 34, 50, 229, 228, 249, 159, 194, 209, 10, 129,
+    18, 225, 238, 145, 131, 118, 227, 151, 230, 97, 138, 23, 121, 164, 183, 220, 144, 122, 92, 140, 2, 166, 202, 105, 222, 80, 26, 17, 147, 185, 82, 135,
+    88, 252, 237, 29, 55, 73, 27, 106, 224, 41, 51, 153, 189, 108, 217, 148, 243, 64, 84, 111, 240, 198, 115, 184, 214, 62, 101, 24, 68, 31, 221, 103,
+    16, 241, 12, 25, 236, 174, 3, 161, 20, 123, 169, 11, 255, 248, 163, 192, 162, 1, 247, 46, 188, 36, 104, 117, 13, 254, 186, 47, 181, 208, 218, 61]);
+  var HIGH2 = new Uint8Array([
+    20, 83, 15, 86, 179, 200, 122, 156, 235, 101, 72, 23, 22, 21, 159, 2, 204, 84, 124, 131, 0, 13, 12, 11, 162, 98, 168, 118, 219, 217, 237, 199,
+    197, 164, 220, 172, 133, 116, 214, 208, 167, 155, 174, 154, 150, 113, 102, 195, 99, 153, 184, 221, 115, 146, 142, 132, 125, 165, 94, 209, 93, 147, 177, 87,
+    81, 80, 128, 137, 82, 148, 79, 78, 10, 107, 188, 141, 127, 110, 71, 70, 65, 64, 68, 1, 17, 203, 3, 63, 247, 244, 225, 169, 143, 60, 58, 249,
+    251, 240, 25, 48, 130, 9, 46, 201, 157, 160, 134, 73, 238, 111, 77, 109, 196, 45, 129, 52, 37, 135, 27, 136, 170, 252, 6, 161, 18, 56, 253, 76,
+    66, 114, 100, 19, 55, 36, 106, 117, 119, 67, 255, 230, 180, 75, 54, 92, 228, 216, 53, 61, 69, 185, 44, 236, 183, 49, 43, 41, 7, 104, 163, 14,
+    105, 123, 24, 158, 33, 57, 190, 40, 26, 91, 120, 245, 35, 202, 42, 176, 175, 62, 254, 4, 140, 231, 229, 152, 50, 149, 211, 246, 74, 232, 166, 234,
+    233, 243, 213, 47, 112, 32, 242, 31, 5, 103, 173, 85, 16, 206, 205, 227, 39, 59, 218, 186, 215, 194, 38, 212, 145, 29, 210, 28, 34, 51, 248, 250,
+    241, 90, 239, 207, 144, 182, 139, 181, 189, 192, 191, 8, 151, 30, 108, 226, 97, 224, 198, 193, 89, 171, 187, 88, 222, 95, 223, 96, 121, 126, 178, 138]);
+  var HIGH1_INV = invert(HIGH1), HIGH2_INV = invert(HIGH2);
+  function invert(table) {
+    var inv = new Uint8Array(256);
+    for (var i = 0; i < 256; i++) inv[table[i]] = i;
+    return inv;
+  }
+
   // [MS-PST] 5.3 "weak" CRC-32: polynomial 0xEDB88320, initial value 0, no final XOR.
   var CRC_TABLE = (function () {
     var table = new Uint32Array(256);
@@ -80,18 +106,39 @@
   }
 
   // Decode/encode a data block in place according to the file's crypt method.
-  function decodeBlock(buf, start, len, crypt) {
+  // `key` is the lower 32 bits of the block's BID (used by the cyclic cipher).
+  function decodeBlock(buf, start, len, crypt, key) {
+    var i, v;
     if (crypt === CRYPT_PERMUTE) {
-      for (var i = 0; i < len; i++) buf[start + i] = PERMUTE_DECODE[buf[start + i]];
+      for (i = 0; i < len; i++) buf[start + i] = PERMUTE_DECODE[buf[start + i]];
     } else if (crypt === CRYPT_CYCLIC) {
-      throw fail('PST_UNSUPPORTED', 'This PST uses "high" (cyclic) encoding, which is not supported.');
+      var salt = (((key >>> 16) & 0xffff) ^ (key & 0xffff)) & 0xffff;
+      for (i = 0; i < len; i++) {
+        var lo = salt & 0xff, hi = (salt >> 8) & 0xff;
+        v = buf[start + i];
+        v = HIGH1[(v + lo) & 0xff];
+        v = HIGH2[(v + hi) & 0xff];
+        v = PERMUTE_DECODE[(v - hi) & 0xff];
+        buf[start + i] = (v - lo) & 0xff;
+        salt = (salt + 1) & 0xffff;
+      }
     }
   }
-  function encodeBlock(buf, start, len, crypt) {
+  function encodeBlock(buf, start, len, crypt, key) {
+    var i, v;
     if (crypt === CRYPT_PERMUTE) {
-      for (var i = 0; i < len; i++) buf[start + i] = PERMUTE_ENCODE[buf[start + i]];
+      for (i = 0; i < len; i++) buf[start + i] = PERMUTE_ENCODE[buf[start + i]];
     } else if (crypt === CRYPT_CYCLIC) {
-      throw fail('PST_UNSUPPORTED', 'This PST uses "high" (cyclic) encoding, which is not supported.');
+      var salt = (((key >>> 16) & 0xffff) ^ (key & 0xffff)) & 0xffff;
+      for (i = 0; i < len; i++) {
+        var lo = salt & 0xff, hi = (salt >> 8) & 0xff;
+        v = buf[start + i];
+        v = PERMUTE_ENCODE[(v + lo) & 0xff];
+        v = HIGH2_INV[(v + hi) & 0xff];
+        v = HIGH1_INV[(v - hi) & 0xff];
+        buf[start + i] = (v - lo) & 0xff;
+        salt = (salt + 1) & 0xffff;
+      }
     }
   }
 
@@ -281,10 +328,6 @@
     var bytes = input instanceof Uint8Array ? input.slice() : new Uint8Array(input).slice();
     var fmt = describe(bytes);
 
-    if (fmt.crypt === CRYPT_CYCLIC) {
-      throw fail('PST_UNSUPPORTED', 'This PST uses "high" (cyclic) encoding, which is not supported.');
-    }
-
     var storeBid = findNodeBid(bytes, fmt.nbtRoot, NID_MESSAGE_STORE, fmt);
     if (storeBid === null) throw fail('PST_INVALID', 'Could not locate the PST message store.');
 
@@ -296,8 +339,9 @@
     if (!block) throw fail('PST_INVALID', 'Could not locate the message store data block.');
 
     // Decode the block payload (cb bytes at block.ib) into a working copy.
+    var cryptKey = Number(storeBid & 0xffffffffn);
     var data = bytes.subarray(block.ib, block.ib + block.cb).slice();
-    decodeBlock(data, 0, block.cb, fmt.crypt);
+    decodeBlock(data, 0, block.cb, fmt.crypt, cryptKey);
 
     var valueOff = findPasswordValueOffset(data);
     if (valueOff === null) {
@@ -314,7 +358,7 @@
     data[valueOff] = 0; data[valueOff + 1] = 0; data[valueOff + 2] = 0; data[valueOff + 3] = 0;
 
     // Re-encode and write the block back.
-    encodeBlock(data, 0, block.cb, fmt.crypt);
+    encodeBlock(data, 0, block.cb, fmt.crypt, cryptKey);
     bytes.set(data, block.ib);
 
     // Recompute the block trailer CRC (over the cb encoded data bytes).
@@ -335,6 +379,8 @@
     unlock: unlock,
     isPst: isPst,
     _describe: describe,
-    _computeCrc: computeCrc
+    _computeCrc: computeCrc,
+    _encodeBlock: encodeBlock,
+    _decodeBlock: decodeBlock
   };
 });

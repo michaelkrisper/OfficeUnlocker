@@ -151,6 +151,56 @@ async function readEntry(buffer, path) {
     assert.ok(removed.includes('p:modifyVerifier'));
   });
 
+  await test('is namespace-prefix agnostic (stripElement)', () => {
+    // Same element, three different prefixes — all must be stripped.
+    assert.strictEqual(
+      OfficeUnlocker.stripElement('<a/><sheetProtection sheet="1"/><b/>', 'sheetProtection').content,
+      '<a/><b/>'
+    );
+    assert.strictEqual(
+      OfficeUnlocker.stripElement('<a/><x:sheetProtection sheet="1"/><b/>', 'sheetProtection').content,
+      '<a/><b/>'
+    );
+    const paired = OfficeUnlocker.stripElement(
+      '<a/><ns0:protectedRanges><ns0:protectedRange password="1"/></ns0:protectedRanges><b/>',
+      'protectedRanges'
+    );
+    assert.strictEqual(paired.content, '<a/><b/>');
+    assert.ok(paired.removed);
+    // A prefix on the configured tag only selects the local name.
+    assert.strictEqual(
+      OfficeUnlocker.stripElement('<x:documentProtection w:edit="readOnly"/>', 'w:documentProtection').content,
+      ''
+    );
+  });
+
+  await test('removes prefixed protection from a real .xlsx', async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', CONTENT_TYPES);
+    zip.file(
+      'xl/workbook.xml',
+      '<?xml version="1.0"?><x:workbook xmlns:x="http://y">' +
+        '<x:workbookProtection workbookPassword="ABCD" lockStructure="1"/>' +
+        '<x:sheets><x:sheet name="Data" sheetId="1"/></x:sheets>' +
+        '</x:workbook>'
+    );
+    zip.file(
+      'xl/worksheets/sheet1.xml',
+      '<?xml version="1.0"?><x:worksheet xmlns:x="http://y">' +
+        '<x:sheetData/><x:sheetProtection sheet="1" password="CC3F"/>' +
+        '</x:worksheet>'
+    );
+    const input = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const { blob, removed } = await OfficeUnlocker.unlock(input);
+    const workbook = await readEntry(blob, 'xl/workbook.xml');
+    const sheet1 = await readEntry(blob, 'xl/worksheets/sheet1.xml');
+    assert.ok(!/workbookProtection/.test(workbook), 'prefixed workbookProtection still present');
+    assert.ok(!/sheetProtection/.test(sheet1), 'prefixed sheetProtection still present');
+    assert.ok(/Data/.test(workbook), 'sheet definition was lost');
+    assert.ok(removed.includes('workbookProtection') && removed.includes('sheetProtection'));
+  });
+
   await test('output remains a valid, openable ZIP archive', async () => {
     const input = await buildProtectedXlsx();
     const { blob } = await OfficeUnlocker.unlock(input);

@@ -55,16 +55,25 @@
    * Strips a single OOXML protection element (self-closing OR paired) from an
    * XML string. Returns { content, removed }.
    *
+   * Matching is namespace-prefix agnostic: an element belongs to a namespace,
+   * not to a particular prefix, so `<sheetProtection/>`, `<x:sheetProtection/>`
+   * and `<ns0:sheetProtection/>` are all equivalent. We therefore match the
+   * element's *local name* and allow any (or no) prefix. The prefix in a tag
+   * such as "w:documentProtection" is only used to derive that local name.
+   *
    * @param {string} xml
    * @param {string} tag e.g. "sheetProtection" or "w:documentProtection"
    */
   function stripElement(xml, tag) {
-    // Escape ":" is fine inside a regex character context; build patterns.
-    var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var colon = tag.lastIndexOf(':');
+    var localName = colon === -1 ? tag : tag.slice(colon + 1);
+    var escaped = localName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Optional XML namespace prefix, e.g. "w:", "x:", "ns0:".
+    var prefix = '(?:[A-Za-z_][\\w.-]*:)?';
     // Paired form: <tag ...> ... </tag>
-    var paired = new RegExp('<' + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + escaped + '>', 'g');
+    var paired = new RegExp('<' + prefix + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + prefix + escaped + '>', 'g');
     // Self-closing or empty form: <tag .../> or <tag ...>
-    var single = new RegExp('<' + escaped + '\\b[^>]*\\/?>', 'g');
+    var single = new RegExp('<' + prefix + escaped + '\\b[^>]*\\/?>', 'g');
 
     var before = xml;
     var out = xml.replace(paired, '').replace(single, '');

@@ -391,6 +391,29 @@ async function readEntry(buffer, path) {
     assert.ok(out.removed.includes('worksheet/workbook protection'));
   });
 
+  // --- Encrypted Office with default password (VelvetSweatshop) -------------
+
+  await test('decrypts a Standard-encrypted Office file (default password)', async () => {
+    const { bytes } = await fixtures.buildStandardEncryptedXlsx();
+    const out = await OfficeUnlocker.unlock(bytes);
+    assert.ok(out.removed.includes('encryption (default password)'), 'decryption not reported');
+    const workbook = await readEntry(out.blob, 'xl/workbook.xml');
+    assert.ok(!/workbookProtection/.test(workbook), 'inner protection not stripped');
+  });
+
+  await test('decrypts an Agile-encrypted Office file (default password)', async () => {
+    const { bytes } = await fixtures.buildAgileEncryptedXlsx();
+    const out = await OfficeUnlocker.unlock(bytes);
+    assert.ok(out.removed.includes('encryption (default password)'), 'decryption not reported');
+    const workbook = await readEntry(out.blob, 'xl/workbook.xml');
+    assert.ok(!/workbookProtection/.test(workbook), 'inner protection not stripped');
+  });
+
+  await test('reports a non-default encrypted Office file as encrypted', async () => {
+    const { bytes } = await fixtures.buildAgileEncryptedXlsx('s3cret-not-default');
+    await assert.rejects(() => OfficeUnlocker.unlock(bytes), (err) => err.code === 'ENCRYPTED');
+  });
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');
   process.exit(failed === 0 ? 0 : 1);
 })();

@@ -50,7 +50,12 @@ by the matching unlocker — all in memory, nothing uploaded:
   unprotected. Works for macro‑enabled OOXML (`vbaProject.bin`) and legacy files.
 - **PST** — Outlook does not encrypt mail with the password; it only stores a
   CRC of it as `PidTagPstPassword`. That property is located in the message
-  store and set to `0`, which removes the password outright.
+  store and set to `0`, which removes the password outright. Works for the
+  none, compressible (permute) and high (cyclic) data encodings.
+- **Encrypted Office with a default password** — Office files that are encrypted
+  (ECMA‑376 Standard or Agile) with Excel's well‑known default password
+  *VelvetSweatshop* — or the empty password — are decrypted automatically and
+  then have their protection stripped like any other file.
 
 The result is downloaded as `unlocked_<yourfile>` — your original is never
 touched.
@@ -65,21 +70,21 @@ touched.
 | Legacy Word "Restrict Editing" (`.doc`, `Dop.fProtEnabled`) | ✅ |
 | VBA macro project password (OOXML &amp; legacy) | ✅ |
 | PDF usage restrictions — RC4, AES‑128, AES‑256 (R6), empty user password | ✅ |
-| Outlook PST password — ANSI &amp; Unicode, none/compressible encoding | ✅ |
+| Outlook PST password — ANSI &amp; Unicode, none/compressible/cyclic encoding | ✅ |
+| Encrypted Office opened by a default password (*VelvetSweatshop* / empty) | ✅ |
 | Legacy PowerPoint content protection (beyond VBA &amp; encryption check) | ❌ |
-| Outlook PST "high" (cyclic) encoding | ❌ |
-| **Open password (full‑file encryption / PDF view password)** | ❌ |
+| **Open password with a real, unknown password (full‑file encryption / PDF view password)** | ❌ |
 
 Files protected with an **open password** (AES‑encrypted OLE2 Office documents,
 or PDFs that need a password just to view) cannot be opened without the
 password. OfficeUnlocker detects these automatically and tells you so instead of
 producing a corrupt file.
 
-> ℹ️ The PDF, PST, legacy‑Office and VBA paths are newer than the OOXML path.
-> The crypto primitives (MD5, RC4, AES‑128/256, SHA‑2) are verified against
-> published test vectors and the logic against synthetic fixtures, but since your
-> original file is never modified, keep it until you've confirmed the unlocked
-> copy opens correctly.
+> ℹ️ The PDF, PST, legacy‑Office, VBA and encrypted‑Office paths are newer than
+> the OOXML path. The crypto primitives (MD5, RC4, AES‑128/256, SHA‑1, SHA‑2) are
+> verified against published test vectors and the logic against synthetic
+> fixtures, but since your original file is never modified, keep it until you've
+> confirmed the unlocked copy opens correctly.
 
 > ⚠️ Only use this tool on files you are authorised to modify.
 
@@ -116,8 +121,9 @@ unlock.js                   # Format dispatcher + Office/OOXML & ODF logic (UMD)
 pdfunlock.js                # PDF Standard Security Handler decryptor (UMD)
 pstunlock.js                # Outlook PST password remover (UMD)
 ole2.js                     # OLE2 / Compound File reader + in-place patcher (UMD)
-olelock.js                  # Legacy .xls + VBA project unlocker (UMD)
-bincrypto.js                # MD5 / RC4 / AES / SHA-2 primitives (UMD)
+olelock.js                  # Legacy .xls/.doc + VBA project unlocker (UMD)
+ooxmlcrypt.js               # ECMA-376 (Agile/Standard) default-password decryptor (UMD)
+bincrypto.js                # MD5 / RC4 / AES / SHA-1 / SHA-2 primitives (UMD)
 test/unlock.test.js         # Automated tests (build → unlock → verify)
 test/fixtures.js            # Synthetic protected-file builders for the tests
 eslint.config.js            # ESLint flat config

@@ -21,12 +21,12 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     // Node.js – pull in dependencies from node_modules / sibling files.
-    module.exports = factory(require('jszip'), require('./pdfunlock.js'), require('./pstunlock.js'), require('./olelock.js'));
+    module.exports = factory(require('jszip'), require('./pdfunlock.js'), require('./pstunlock.js'), require('./olelock.js'), require('./ooxmlcrypt.js'));
   } else {
     // Browser – dependencies are expected to be loaded globally beforehand.
-    root.OfficeUnlocker = factory(root.JSZip, root.PdfUnlock, root.PstUnlock, root.OleLock);
+    root.OfficeUnlocker = factory(root.JSZip, root.PdfUnlock, root.PstUnlock, root.OleLock, root.OoxmlCrypt);
   }
-})(typeof self !== 'undefined' ? self : this, function (JSZip, PdfUnlock, PstUnlock, OleLock) {
+})(typeof self !== 'undefined' ? self : this, function (JSZip, PdfUnlock, PstUnlock, OleLock, OoxmlCrypt) {
   'use strict';
 
   var OOXML_EXTENSIONS = ['xlsx', 'docx', 'pptx', 'xlsm', 'docm', 'pptm', 'xlsb'];
@@ -156,8 +156,18 @@
 
   function makeError(code, message) { var e = new Error(message); e.code = code; return e; }
 
-  // OLE2 container: encrypted OOXML, or a legacy binary Office / VBA file.
-  function unlockOle2(bytes) {
+  // OLE2 container: encrypted OOXML (with a known password), or a legacy binary
+  // Office / VBA file.
+  async function unlockOle2(bytes) {
+    // Encrypted OOXML that opens with a default password (e.g. "VelvetSweatshop").
+    if (OoxmlCrypt) {
+      var decrypted = OoxmlCrypt.tryDecrypt(bytes); // null | Uint8Array | throws ENCRYPTED
+      if (decrypted) {
+        var inner = await unlockOoxml(decrypted, decrypted);
+        inner.removed = ['encryption (default password)'].concat(inner.removed);
+        return inner;
+      }
+    }
     if (!OleLock) throw makeError('ENCRYPTED', 'This file is encrypted with an "open password" and cannot be unlocked without it.');
     var res = OleLock.unlock(bytes);
     return { blob: toOutput(res.bytes), removed: res.removed, kind: res.kind };

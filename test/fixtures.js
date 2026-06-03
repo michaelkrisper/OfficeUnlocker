@@ -427,9 +427,120 @@ function buildEncryptedOoxmlOle2() {
   ]);
 }
 
+// --- ECMA-376 encrypted Office (default password "VelvetSweatshop") ---------
+
+const PW = 'VelvetSweatshop';
+const utf16le = (s) => { const o = Buffer.alloc(s.length * 2); for (let i = 0; i < s.length; i++) o.writeUInt16LE(s.charCodeAt(i), i * 2); return o; };
+const le32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0, 0); return b; };
+const le64 = (n) => { const b = Buffer.alloc(8); b.writeUInt32LE(n & 0xffffffff, 0); b.writeUInt32LE(Math.floor(n / 0x100000000), 4); return b; };
+const ub = (u8) => Buffer.from(u8);
+
+async function buildProtectedInnerXlsx() {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types/>');
+  zip.file('xl/workbook.xml',
+    '<?xml version="1.0"?><workbook><workbookProtection workbookPassword="ABCD" lockStructure="1"/>' +
+    '<sheets><sheet name="S" sheetId="1"/></sheets></workbook>');
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+function pad16(buf) { const n = Math.ceil(buf.length / 16) * 16; const o = Buffer.alloc(n); buf.copy(o); return o; }
+function ecbEnc(key, data) {
+  const out = Buffer.alloc(data.length);
+  for (let off = 0; off + 16 <= data.length; off += 16) ub(bc.aesEcbEncryptBlock(new Uint8Array(key), new Uint8Array(data.subarray(off, off + 16)))).copy(out, off);
+  return out;
+}
+
+async function buildStandardEncryptedXlsx(pw = PW) {
+  const inner = await buildProtectedInnerXlsx();
+  const keyLen = 16; // AES-128
+  const salt = crypto.randomBytes(16);
+  let h = ub(bc.sha1(ub(Buffer.concat([salt, utf16le(pw)]))));
+  for (let i = 0; i < 50000; i++) h = ub(bc.sha1(ub(Buffer.concat([le32(i), h]))));
+  h = ub(bc.sha1(ub(Buffer.concat([h, le32(0)]))));
+  const b1 = Buffer.alloc(64), b2 = Buffer.alloc(64);
+  for (let j = 0; j < 64; j++) { b1[j] = 0x36 ^ (j < h.length ? h[j] : 0); b2[j] = 0x5c ^ (j < h.length ? h[j] : 0); }
+  const key = Buffer.concat([ub(bc.sha1(b1)), ub(bc.sha1(b2))]).subarray(0, keyLen);
+
+  const verifier = crypto.randomBytes(16);
+  const encVerifier = ecbEnc(key, verifier);
+  const encVerifierHash = ecbEnc(key, pad16(ub(bc.sha1(verifier))).subarray(0, 32));
+  const encPackage = Buffer.concat([le64(inner.length), ecbEnc(key, pad16(inner))]);
+
+  const header = Buffer.concat([
+    le32(0x24), le32(0),         // Flags, SizeExtra
+    le32(0x660e), le32(0x8004),  // AlgID=AES128, AlgIDHash=SHA1
+    le32(128), le32(0x18),       // KeySize, ProviderType
+    le32(0), le32(0),            // Reserved1, Reserved2
+    Buffer.from([0, 0])          // CSPName (empty, null-terminated)
+  ]);
+  const verifierBlock = Buffer.concat([le32(16), salt, encVerifier, le32(20), encVerifierHash]);
+  const info = Buffer.concat([
+    Buffer.from([3, 0, 2, 0]),   // versionMajor=3, versionMinor=2
+    le32(0x24),                  // EncryptionInfo.Flags
+    le32(header.length),
+    header, verifierBlock
+  ]);
+  return { bytes: buildCfb([{ name: 'EncryptionInfo', data: pad16Min(info) }, { name: 'EncryptedPackage', data: pad16Min(encPackage) }]) };
+}
+
+// CFB streams must be >= 4096 to use the FAT path in our reader; pad but keep
+// the logical size accurate is unnecessary here since the crypto reads fixed
+// offsets / a size prefix — but the reader returns `size` bytes, so set size to
+// the real content length by NOT padding the stream data (buildCfb stores size =
+// data.length). We instead ensure >= 4096 by padding the *data* and the crypto
+// only reads what it needs. Standard's encPackage uses the 8-byte size prefix.
+function pad16Min(buf) {
+  if (buf.length >= 4096) return new Uint8Array(buf);
+  const o = new Uint8Array(4096); o.set(buf); return o;
+}
+
+const AGILE_BVI = new Uint8Array([0xfe, 0xa7, 0xd2, 0x76, 0x3b, 0x4b, 0x9e, 0x79]);
+const AGILE_BVV = new Uint8Array([0xd7, 0xaa, 0x0f, 0x6d, 0x30, 0x61, 0x34, 0x4e]);
+const AGILE_BKV = new Uint8Array([0x14, 0x6e, 0x0b, 0xe7, 0xab, 0xac, 0xd0, 0xd6]);
+function fit(h, n) { if (h.length >= n) return Buffer.from(h.subarray(0, n)); const o = Buffer.alloc(n, 0x36); Buffer.from(h).copy(o); return o; }
+function cbcEnc(key, iv, data) { return ub(bc.aesCbcEncryptNoPad(new Uint8Array(key), new Uint8Array(iv), new Uint8Array(pad16(data)))); }
+
+async function buildAgileEncryptedXlsx(pw = PW) {
+  const inner = await buildProtectedInnerXlsx();
+  const sha512 = (b) => ub(bc.sha512(new Uint8Array(b)));
+  const kdSalt = crypto.randomBytes(16), ekSalt = crypto.randomBytes(16);
+  const spin = 100, keyBits = 256, kLen = 32;
+  const secretKey = crypto.randomBytes(32);
+
+  let hSpin = sha512(Buffer.concat([ekSalt, utf16le(pw)]));
+  for (let i = 0; i < spin; i++) hSpin = sha512(Buffer.concat([le32(i), hSpin]));
+  const keyFor = (bk) => fit(sha512(Buffer.concat([hSpin, ub(bk)])), kLen);
+
+  const verInput = crypto.randomBytes(16);
+  const encVerInput = cbcEnc(keyFor(AGILE_BVI), ekSalt, verInput);
+  const encVerValue = cbcEnc(keyFor(AGILE_BVV), ekSalt, sha512(verInput));
+  const encKeyValue = cbcEnc(keyFor(AGILE_BKV), ekSalt, secretKey);
+
+  // package
+  const segs = [];
+  for (let pos = 0, seg = 0; pos < inner.length; pos += 4096, seg++) {
+    const iv = fit(sha512(Buffer.concat([kdSalt, le32(seg)])), 16);
+    segs.push(cbcEnc(secretKey, iv, inner.subarray(pos, pos + 4096)));
+  }
+  const encPackage = Buffer.concat([le64(inner.length), ...segs]);
+
+  const b = (u) => Buffer.from(u).toString('base64');
+  const xml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<encryption>' +
+    `<keyData saltSize="16" blockSize="16" keyBits="${keyBits}" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="${b(kdSalt)}"/>` +
+    '<keyEncryptors><keyEncryptor uri="x">' +
+    `<p:encryptedKey spinCount="${spin}" saltSize="16" blockSize="16" keyBits="${keyBits}" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="${b(ekSalt)}" encryptedVerifierHashInput="${b(encVerInput)}" encryptedVerifierHashValue="${b(encVerValue)}" encryptedKeyValue="${b(encKeyValue)}"/>` +
+    '</keyEncryptor></keyEncryptors></encryption>';
+  const info = Buffer.concat([Buffer.from([4, 0, 4, 0]), le32(0x40), Buffer.from(xml, 'utf8')]);
+  return { bytes: buildCfb([{ name: 'EncryptionInfo', data: pad16Min(info) }, { name: 'EncryptedPackage', data: pad16Min(encPackage) }]) };
+}
+
 module.exports = {
   buildRc4Pdf, buildAesPdfWithObjStm, buildUserPasswordPdf, buildAes256R6Pdf,
   buildUnicodePst, readPstPassword, pstCrc,
   buildProtectedOds, buildEncryptedOdt,
-  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2
+  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2,
+  buildStandardEncryptedXlsx, buildAgileEncryptedXlsx
 };

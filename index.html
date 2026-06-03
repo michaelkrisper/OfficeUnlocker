@@ -8,36 +8,43 @@
         content="Remove editing, sheet and document protection from Office files (.xlsx, .docx, .pptx) right in your browser. 100% private — nothing is ever uploaded.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔓</text></svg>">
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='11' width='18' height='11' rx='2'/><path d='M7 11V7a5 5 0 0 1 9.9-1'/></svg>">
   <style>
     :root {
-      --bg-1: #6366f1;
-      --bg-2: #8b5cf6;
-      --bg-3: #ec4899;
+      --bg: #fafafa;
       --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --border: #e2e8f0;
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --primary: #6366f1;
-      --primary-hover: #4f46e5;
-      --success: #16a34a;
+      --surface-2: #f6f7f8;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --text: #111827;
+      --text-muted: #6b7280;
+      --accent: #111827;
+      --accent-hover: #000000;
+      --accent-contrast: #ffffff;
+      --success: #15803d;
       --success-bg: #f0fdf4;
-      --danger: #dc2626;
+      --danger: #b91c1c;
       --danger-bg: #fef2f2;
-      --radius: 16px;
-      --shadow: 0 20px 60px -15px rgba(15, 23, 42, 0.35);
+      --radius: 10px;
+      --radius-sm: 8px;
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --surface: #1e293b;
-        --surface-2: #0f172a;
-        --border: #334155;
-        --text: #f1f5f9;
-        --text-muted: #94a3b8;
-        --success-bg: #0c2a1a;
-        --danger-bg: #2a0f0f;
+        --bg: #0b0c0e;
+        --surface: #161719;
+        --surface-2: #1d1f22;
+        --border: #2a2d31;
+        --border-strong: #3a3e44;
+        --text: #f3f4f6;
+        --text-muted: #9aa0a6;
+        --accent: #f3f4f6;
+        --accent-hover: #ffffff;
+        --accent-contrast: #111827;
+        --success: #4ade80;
+        --success-bg: #11271a;
+        --danger: #f87171;
+        --danger-bg: #2a1414;
       }
     }
 
@@ -49,103 +56,103 @@
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: var(--text);
-      background: linear-gradient(135deg, var(--bg-1), var(--bg-2) 55%, var(--bg-3));
-      background-attachment: fixed;
+      background: var(--bg);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 32px 20px;
+      padding: 40px 20px;
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
     }
 
     .card {
       width: 100%;
-      max-width: 560px;
+      max-width: 480px;
       background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-      animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(16px); }
-      to   { opacity: 1; transform: translateY(0); }
     }
 
     .card__header {
-      padding: 36px 36px 8px;
+      padding: 32px 32px 0;
       text-align: center;
     }
 
     .logo {
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 16px;
+      width: 44px;
+      height: 44px;
+      margin: 0 auto 18px;
       display: grid;
       place-items: center;
-      font-size: 32px;
-      border-radius: 18px;
-      background: linear-gradient(135deg, var(--bg-1), var(--bg-3));
-      box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.6);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
     }
+    .logo svg { width: 22px; height: 22px; }
 
     h1 {
-      margin: 0 0 8px;
-      font-size: 1.6rem;
+      margin: 0 0 6px;
+      font-size: 1.35rem;
+      font-weight: 600;
       letter-spacing: -0.02em;
     }
 
     .subtitle {
-      margin: 0;
+      margin: 0 auto;
+      max-width: 36ch;
       color: var(--text-muted);
-      font-size: 0.95rem;
-      line-height: 1.5;
+      font-size: 0.9rem;
+      line-height: 1.55;
     }
 
-    .card__body { padding: 28px 36px 36px; }
+    .card__body { padding: 28px 32px 32px; }
 
     .dropzone {
-      border: 2px dashed var(--border);
+      display: block;
+      border: 1px dashed var(--border-strong);
       border-radius: var(--radius);
       background: var(--surface-2);
-      padding: 36px 24px;
+      padding: 32px 24px;
       text-align: center;
       cursor: pointer;
-      transition: border-color 0.2s, background 0.2s, transform 0.1s;
+      transition: border-color 0.15s, background 0.15s;
     }
 
-    .dropzone:hover { border-color: var(--primary); }
+    .dropzone:hover { border-color: var(--text-muted); }
 
     .dropzone.dragover {
-      border-color: var(--primary);
-      background: color-mix(in srgb, var(--primary) 8%, var(--surface-2));
-      transform: scale(1.01);
+      border-color: var(--text);
+      background: var(--surface);
     }
 
-    .dropzone__icon { font-size: 40px; line-height: 1; }
+    .dropzone__icon {
+      color: var(--text-muted);
+      line-height: 0;
+    }
+    .dropzone__icon svg { width: 28px; height: 28px; }
 
-    .dropzone__title { margin: 14px 0 4px; font-weight: 600; }
+    .dropzone__title { margin: 14px 0 4px; font-weight: 500; font-size: 0.95rem; }
 
-    .dropzone__hint { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+    .dropzone__hint { margin: 0; font-size: 0.82rem; color: var(--text-muted); }
 
     .formats {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       justify-content: center;
       margin-top: 16px;
       flex-wrap: wrap;
     }
 
     .badge {
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       font-weight: 600;
-      letter-spacing: 0.03em;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--primary) 12%, transparent);
-      color: var(--primary);
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 5px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
     }
 
     input[type="file"] { display: none; }
@@ -154,74 +161,89 @@
       display: none;
       align-items: center;
       gap: 12px;
-      margin-top: 18px;
+      margin-top: 16px;
       padding: 12px 14px;
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: var(--radius-sm);
       background: var(--surface-2);
     }
 
     .file-chip.visible { display: flex; }
 
-    .file-chip__icon { font-size: 22px; }
+    .file-chip__icon {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: var(--text-muted);
+    }
     .file-chip__meta { flex: 1; min-width: 0; text-align: left; }
     .file-chip__name {
-      font-weight: 600;
-      font-size: 0.9rem;
+      font-weight: 500;
+      font-size: 0.88rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .file-chip__size { font-size: 0.78rem; color: var(--text-muted); }
+    .file-chip__size { font-size: 0.76rem; color: var(--text-muted); }
 
     .file-chip__remove {
+      flex: none;
       border: none;
       background: transparent;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 18px;
+      font-size: 16px;
       line-height: 1;
-      padding: 4px;
+      padding: 6px;
       border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
     }
     .file-chip__remove:hover { color: var(--danger); background: var(--danger-bg); }
 
     .btn {
       width: 100%;
       margin-top: 20px;
-      padding: 14px 20px;
-      font-size: 1rem;
+      padding: 12px 20px;
+      font-size: 0.95rem;
       font-weight: 600;
-      color: #fff;
-      background: var(--primary);
+      color: var(--accent-contrast);
+      background: var(--accent);
       border: none;
-      border-radius: 12px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
-      transition: background 0.2s, transform 0.05s, opacity 0.2s;
+      transition: background 0.15s, opacity 0.15s;
     }
-    .btn:hover:not(:disabled) { background: var(--primary-hover); }
-    .btn:active:not(:disabled) { transform: translateY(1px); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .spinner {
       display: inline-block;
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       margin-right: 8px;
-      vertical-align: -3px;
-      border: 2px solid rgba(255, 255, 255, 0.4);
-      border-top-color: #fff;
+      vertical-align: -2px;
+      border: 2px solid color-mix(in srgb, var(--accent-contrast) 35%, transparent);
+      border-top-color: var(--accent-contrast);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .status {
-      margin: 18px 0 0;
-      padding: 12px 14px;
-      border-radius: 10px;
-      font-size: 0.9rem;
+      margin: 16px 0 0;
+      padding: 11px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.86rem;
       font-weight: 500;
+      line-height: 1.45;
       display: none;
     }
     .status.visible { display: block; }
@@ -232,69 +254,85 @@
     .features {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-top: 26px;
+      gap: 0;
+      margin-top: 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
     }
     .feature {
       text-align: center;
-      padding: 14px 8px;
-      border-radius: 12px;
-      background: var(--surface-2);
+      padding: 16px 8px;
+      border-right: 1px solid var(--border);
     }
-    .feature__icon { font-size: 20px; }
-    .feature__title { font-size: 0.8rem; font-weight: 600; margin-top: 6px; }
-    .feature__text { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+    .feature:last-child { border-right: none; }
+    .feature__title { font-size: 0.82rem; font-weight: 600; }
+    .feature__text { font-size: 0.72rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
 
     .note {
-      margin-top: 22px;
+      margin: 24px 0 0;
       font-size: 0.78rem;
-      line-height: 1.5;
+      line-height: 1.55;
       color: var(--text-muted);
-      border-left: 3px solid var(--border);
-      padding-left: 12px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
     }
-    .note strong { color: var(--text); }
+    .note strong { color: var(--text); font-weight: 600; }
 
     footer {
-      margin-top: 24px;
+      margin-top: 20px;
       text-align: center;
-      color: rgba(255, 255, 255, 0.9);
-      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
     }
-    footer a { color: #fff; font-weight: 600; }
+    footer a { color: var(--text); font-weight: 500; text-decoration: none; border-bottom: 1px solid var(--border-strong); }
+    footer a:hover { border-bottom-color: var(--text); }
 
     @media (max-width: 480px) {
       .card__header, .card__body { padding-left: 22px; padding-right: 22px; }
       .features { grid-template-columns: 1fr; }
+      .feature { border-right: none; border-bottom: 1px solid var(--border); }
+      .feature:last-child { border-bottom: none; }
     }
   </style>
 </head>
 <body>
   <main class="card">
     <div class="card__header">
-      <div class="logo" aria-hidden="true">🔓</div>
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+        </svg>
+      </div>
       <h1>OfficeUnlocker</h1>
       <p class="subtitle">
-        Remove editing, sheet &amp; document protection from your Office files —
-        instantly and entirely in your browser.
+        Remove editing, sheet and document protection from your Office files —
+        entirely in your browser.
       </p>
     </div>
 
     <div class="card__body">
       <label class="dropzone" id="dropzone">
-        <div class="dropzone__icon" aria-hidden="true">📂</div>
-        <p class="dropzone__title">Drag &amp; drop your file here</p>
+        <div class="dropzone__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 9 12 4 17 9"/>
+            <line x1="12" y1="4" x2="12" y2="16"/>
+          </svg>
+        </div>
+        <p class="dropzone__title">Drop your file here</p>
         <p class="dropzone__hint">or click to browse</p>
         <div class="formats">
-          <span class="badge">.XLSX</span>
-          <span class="badge">.DOCX</span>
-          <span class="badge">.PPTX</span>
+          <span class="badge">XLSX</span>
+          <span class="badge">DOCX</span>
+          <span class="badge">PPTX</span>
         </div>
         <input type="file" id="fileInput" accept=".xlsx,.docx,.pptx">
       </label>
 
       <div class="file-chip" id="fileChip">
-        <span class="file-chip__icon" id="fileIcon" aria-hidden="true">📄</span>
+        <span class="file-chip__icon" id="fileIcon" aria-hidden="true">FILE</span>
         <span class="file-chip__meta">
           <span class="file-chip__name" id="fileName"></span>
           <span class="file-chip__size" id="fileSize"></span>
@@ -308,17 +346,14 @@
 
       <div class="features">
         <div class="feature">
-          <div class="feature__icon" aria-hidden="true">🔒</div>
-          <div class="feature__title">100% Private</div>
+          <div class="feature__title">Private</div>
           <div class="feature__text">Files never leave your device</div>
         </div>
         <div class="feature">
-          <div class="feature__icon" aria-hidden="true">⚡</div>
           <div class="feature__title">Instant</div>
           <div class="feature__text">Processed locally in seconds</div>
         </div>
         <div class="feature">
-          <div class="feature__icon" aria-hidden="true">🆓</div>
           <div class="feature__title">Free</div>
           <div class="feature__text">No account, no limits</div>
         </div>
@@ -359,7 +394,6 @@
       var fileIconEl = document.getElementById('fileIcon');
       var fileRemove = document.getElementById('fileRemove');
 
-      var ICONS = { xlsx: '📊', docx: '📝', pptx: '📑' };
       var selectedFile = null;
 
       function formatSize(bytes) {
@@ -396,7 +430,7 @@
         selectedFile = file;
         clearStatus();
         var ext = OfficeUnlocker.getExtension(file.name);
-        fileIconEl.textContent = ICONS[ext] || '📄';
+        fileIconEl.textContent = ext ? ext.toUpperCase() : 'FILE';
         fileNameEl.textContent = file.name;
         fileSizeEl.textContent = formatSize(file.size);
         fileChip.classList.add('visible');
@@ -457,7 +491,7 @@
           setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 
           if (result.removed.length) {
-            setStatus('Done! Protection removed and download started.', 'success');
+            setStatus('Done. Protection removed and download started.', 'success');
           } else {
             setStatus('No protection was found — your file was already unprotected. Download started anyway.', 'info');
           }

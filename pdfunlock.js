@@ -47,6 +47,12 @@
   var md5 = BinCrypto.md5;
   var rc4 = BinCrypto.rc4;
   var aesCbcDecrypt = BinCrypto.aesCbcDecrypt;
+  var sha256 = BinCrypto.sha256;
+  var sha384 = BinCrypto.sha384;
+  var sha512 = BinCrypto.sha512;
+  var aesCbcEncryptNoPad = BinCrypto.aesCbcEncryptNoPad;
+  var aesCbcDecryptNoPad = BinCrypto.aesCbcDecryptNoPad;
+  var ZERO_IV = new Uint8Array(16);
 
   // 32-byte padding string from the PDF spec (Algorithm 2).
   var PAD = new Uint8Array([
@@ -355,8 +361,8 @@
     }
     var V = numOf(resolve(dictGet(encDict, 'V'), objects), 0);
     var R = numOf(resolve(dictGet(encDict, 'R'), objects), 0);
-    if (R >= 5 || V >= 5) {
-      throw fail('UNSUPPORTED', 'This PDF uses AES-256 (newer Acrobat) encryption, which is not yet supported.');
+    if (R === 5 || R === 6 || V === 5) {
+      return buildHandlerAes256(encDict, objects, R);
     }
     var O = strOf(resolve(dictGet(encDict, 'O'), objects));
     var P = numOf(resolve(dictGet(encDict, 'P'), objects), 0) | 0;
@@ -402,6 +408,51 @@
     };
   }
 
+  // AES-256 (Standard Security Handler V5, revisions 5 and 6). With an empty
+  // user password the 32-byte file key is recovered from /U + /UE.
+  function buildHandlerAes256(encDict, objects, R) {
+    var U = strOf(resolve(dictGet(encDict, 'U'), objects));
+    var UE = strOf(resolve(dictGet(encDict, 'UE'), objects));
+    if (!U || U.length < 48 || !UE || UE.length < 32) {
+      throw fail('INVALID', 'This PDF declares AES-256 encryption but is missing key material.');
+    }
+    var validationSalt = U.subarray(32, 40);
+    var keySalt = U.subarray(40, 48);
+    var pw = new Uint8Array(0);
+
+    var check = hashR6(R, pw, validationSalt, new Uint8Array(0));
+    if (!bytesEqual(check, U, 32)) {
+      throw fail('ENCRYPTED', 'This PDF needs an "open" password to view it; it cannot be unlocked without that password.');
+    }
+    var intermediate = hashR6(R, pw, keySalt, new Uint8Array(0));
+    var fileKey = aesCbcDecryptNoPad(intermediate, ZERO_IV, UE.subarray(0, 32));
+    return { aesv3: true, key: fileKey };
+  }
+
+  // Algorithm 2.B (R6) — the hardened password hash. R5 used a plain SHA-256.
+  function hashR6(R, password, salt, udata) {
+    var K = sha256(concat([password, salt, udata]));
+    if (R === 5) return K;
+    var round = 0;
+    while (true) {
+      var block = concat([password, K, udata]);
+      var K1 = repeat(block, 64);
+      var E = aesCbcEncryptNoPad(K.subarray(0, 16), K.subarray(16, 32), K1);
+      var sum = 0;
+      for (var i = 0; i < 16; i++) sum += E[i];
+      var mod = sum % 3;
+      K = mod === 0 ? sha256(E) : (mod === 1 ? sha384(E) : sha512(E));
+      round++;
+      if (round >= 64 && E[E.length - 1] <= round - 32) break;
+    }
+    return K.subarray(0, 32);
+  }
+  function repeat(block, times) {
+    var out = new Uint8Array(block.length * times);
+    for (var i = 0; i < times; i++) out.set(block, i * block.length);
+    return out;
+  }
+
   function verifyUserPassword(key, R, idBytes, U) {
     if (!U) return true; // can't verify; assume ok
     if (R === 2) {
@@ -433,6 +484,7 @@
   }
 
   function decryptBytes(handler, num, gen, bytes) {
+    if (handler.aesv3) return aesCbcDecrypt(handler.key, bytes); // file key used directly
     var ok = objectKey(handler, num, gen);
     return handler.useAES ? aesCbcDecrypt(ok, bytes) : rc4(ok, bytes);
   }

@@ -13,6 +13,8 @@ const OfficeUnlocker = require('../unlock.js');
 const PdfUnlock = require('../pdfunlock.js');
 const PstUnlock = require('../pstunlock.js');
 const BinCrypto = require('../bincrypto.js');
+const Ole2 = require('../ole2.js');
+const OleLock = require('../olelock.js');
 const fixtures = require('./fixtures.js');
 
 const fromHex = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
@@ -239,9 +241,15 @@ async function readEntry(buffer, path) {
     assert.throws(() => PdfUnlock.unlock(bytes), (err) => err.code === 'ENCRYPTED');
   });
 
-  await test('reports AES-256 PDFs as unsupported', () => {
-    const bytes = fixtures.buildAes256Pdf();
-    assert.throws(() => PdfUnlock.unlock(bytes), (err) => err.code === 'UNSUPPORTED');
+  await test('removes AES-256 (R6) restrictions and decrypts a PDF', () => {
+    const { bytes, secretContent, secretString } = fixtures.buildAes256R6Pdf();
+    const res = PdfUnlock.unlock(bytes);
+    const out = latin1(res.bytes);
+    assert.ok(res.changed);
+    assert.ok(!/\/Encrypt/.test(out), '/Encrypt still present');
+    assert.ok(out.includes(secretContent), 'AES-256 content stream was not decrypted');
+    assert.ok(out.toLowerCase().includes(Buffer.from(secretString, 'latin1').toString('hex')),
+      'AES-256 string was not decrypted');
   });
 
   await test('leaves an unencrypted PDF unchanged', () => {
@@ -295,6 +303,85 @@ async function readEntry(buffer, path) {
   await test('isSupported recognises pdf and pst', () => {
     assert.ok(OfficeUnlocker.isSupported('statement.pdf'));
     assert.ok(OfficeUnlocker.isSupported('archive.PST'));
+  });
+
+  // --- OpenDocument ---------------------------------------------------------
+
+  await test('removes sheet protection from an .ods (OpenDocument)', async () => {
+    const input = await fixtures.buildProtectedOds();
+    const { blob, removed, kind } = await OfficeUnlocker.unlock(input);
+    assert.strictEqual(kind, 'odf');
+    const content = await readEntry(blob, 'content.xml');
+    assert.ok(/table:protected="false"/.test(content), 'protection flag not cleared');
+    assert.ok(!/protection-key/.test(content), 'protection-key not removed');
+    assert.ok(/keepme/.test(content), 'cell data was lost');
+    assert.ok(removed.includes('document protection'));
+  });
+
+  await test('detects an encrypted OpenDocument file', async () => {
+    const input = await fixtures.buildEncryptedOdt();
+    await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
+  // --- Legacy OLE2 (.xls) + VBA --------------------------------------------
+
+  await test('removes protection records from a legacy .xls', () => {
+    const input = fixtures.buildProtectedXls();
+    const res = PstUnlock.isPst(input);
+    assert.ok(!res, 'should not be detected as PST');
+    const out = OleLock.unlock(input);
+    assert.ok(out.removed.includes('worksheet/workbook protection'));
+    // Re-read the Workbook stream and confirm the protect records are zeroed.
+    const cfb = Ole2.parse(out.bytes);
+    const wb = cfb.readStream('Workbook');
+    let pos = 0, sawProtect = false;
+    while (pos + 4 <= wb.length) {
+      const id = wb[pos] | (wb[pos + 1] << 8);
+      const len = wb[pos + 2] | (wb[pos + 3] << 8);
+      if ([0x12, 0x13, 0x19, 0x63].includes(id) && len > 0) {
+        sawProtect = true;
+        for (let k = 0; k < len; k++) assert.strictEqual(wb[pos + 4 + k], 0, 'record not zeroed');
+      }
+      if (id === 0 && len === 0) break;
+      pos += 4 + len;
+    }
+    assert.ok(sawProtect, 'no protection records were seen');
+  });
+
+  await test('removes "Restrict Editing" from a legacy .doc', () => {
+    const input = fixtures.buildProtectedDoc();
+    const out = OleLock.unlock(input);
+    assert.ok(out.removed.includes('document protection'));
+    const tbl = Ole2.parse(out.bytes).readStream('0Table');
+    // fcDop = 16, fProtEnabled is bit 0x02 of Dop byte 0x07.
+    assert.strictEqual(tbl[16 + 0x07] & 0x02, 0, 'fProtEnabled not cleared');
+    assert.strictEqual(tbl[16 + 0x07], 0x09, 'other Dop bits were disturbed');
+  });
+
+  await test('detects an encrypted legacy .xls (FILEPASS)', () => {
+    const input = fixtures.buildEncryptedXls();
+    assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
+  await test('detects encrypted OOXML stored in OLE2', () => {
+    const input = fixtures.buildEncryptedOoxmlOle2();
+    assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
+  await test('removes a VBA project password (DPB -> DPx)', () => {
+    const input = fixtures.buildVbaCfb();
+    const res = OleLock.unlockVbaProjectBin(input);
+    assert.ok(res.changed, 'no change made to the VBA project');
+    const project = latin1(Ole2.parse(res.bytes).readStream('PROJECT'));
+    assert.ok(!/\bDPB=/.test(project), 'DPB key still present');
+    assert.ok(/\bDPx=/.test(project), 'DPB was not renamed to DPx');
+  });
+
+  await test('OfficeUnlocker routes legacy OLE2 by content', async () => {
+    const input = fixtures.buildProtectedXls();
+    const out = await OfficeUnlocker.unlock(input);
+    assert.strictEqual(out.kind, 'ole2');
+    assert.ok(out.removed.includes('worksheet/workbook protection'));
   });
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');

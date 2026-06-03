@@ -52,10 +52,14 @@ async function buildProtectedXlsx() {
       '</worksheet>'
   );
   // ... while sheet2 uses the rarer paired form: <sheetProtection ...></sheetProtection>
+  // It also carries a password-protected "allow edit ranges" definition.
   zip.file(
     'xl/worksheets/sheet2.xml',
     '<?xml version="1.0"?><worksheet><sheetData/>' +
       '<sheetProtection algorithmName="SHA-512" hashValue="x" sheet="1"></sheetProtection>' +
+      '<protectedRanges>' +
+      '<protectedRange password="83AF" sqref="A1:B2" name="Range1"/>' +
+      '</protectedRanges>' +
       '</worksheet>'
   );
   return zip.generateAsync({ type: 'nodebuffer' });
@@ -72,7 +76,12 @@ async function buildProtectedDocx() {
       '<w:defaultTabStop w:val="708"/>' +
       '</w:settings>'
   );
-  zip.file('word/document.xml', '<?xml version="1.0"?><w:document>keepme</w:document>');
+  zip.file(
+    'word/document.xml',
+    '<?xml version="1.0"?><w:document><w:body>' +
+      '<w:permStart w:id="1" w:edGrp="everyone"/>keepme<w:permEnd w:id="1"/>' +
+      '</w:body></w:document>'
+  );
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
@@ -111,6 +120,7 @@ async function readEntry(buffer, path) {
     assert.ok(!/fileSharing/.test(workbook), 'fileSharing still present');
     assert.ok(!/sheetProtection/.test(sheet1), 'self-closing sheetProtection still present');
     assert.ok(!/sheetProtection/.test(sheet2), 'paired sheetProtection still present');
+    assert.ok(!/protectedRange/.test(sheet2), 'protectedRanges (allow-edit ranges) still present');
     assert.ok(/keepme/.test(sheet1), 'sheet data was lost');
     assert.ok(/Data/.test(workbook), 'sheet definition was lost');
     assert.ok(removed.includes('workbookProtection') && removed.includes('sheetProtection'));
@@ -127,6 +137,7 @@ async function readEntry(buffer, path) {
     assert.ok(/defaultTabStop/.test(settings), 'other settings were lost');
     const doc = await readEntry(blob, 'word/document.xml');
     assert.ok(/keepme/.test(doc), 'document body was lost');
+    assert.ok(!/permStart|permEnd/.test(doc), 'editable-region markers still present');
     assert.ok(removed.includes('w:documentProtection') && removed.includes('w:writeProtection'));
   });
 

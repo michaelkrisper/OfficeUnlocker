@@ -77,13 +77,18 @@
    */
   var STATIC_TARGETS = {
     'xl/workbook.xml': ['workbookProtection', 'fileSharing'],
+    // word/document.xml also carries the editable-region markers that pair with
+    // documentProtection ("allow editing only in these regions").
+    'word/document.xml': ['w:permStart', 'w:permEnd'],
     'word/settings.xml': ['w:documentProtection', 'w:writeProtection'],
     'ppt/presentation.xml': ['p:modifyVerifier']
   };
 
   function tagsForPath(path) {
     if (STATIC_TARGETS[path]) return STATIC_TARGETS[path];
-    if (/^xl\/worksheets\/.*\.xml$/.test(path)) return ['sheetProtection'];
+    // Worksheets carry the sheet protection flag plus any password-protected
+    // "allow users to edit ranges" definitions (protectedRanges).
+    if (/^xl\/worksheets\/.*\.xml$/.test(path)) return ['sheetProtection', 'protectedRanges'];
     if (/^xl\/chartsheets\/.*\.xml$/.test(path)) return ['sheetProtection'];
     return null;
   }

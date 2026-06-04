@@ -147,14 +147,32 @@
       if (typeof entry === 'string') entry = find(entry);
       if (!entry) return null;
       var out = new Uint8Array(entry.size);
-      for (var o = 0; o < entry.size; o++) out[o] = bytes[physOffset(entry, o)];
+      var isMini = entry.size < miniCutoff && entry.type !== 5;
+      var secSize = isMini ? miniSectorSize : sectorSize;
+      var o = 0;
+      while (o < entry.size) {
+        var pOff = physOffset(entry, o);
+        var remInSec = secSize - (o % secSize);
+        var toRead = Math.min(entry.size - o, remInSec);
+        out.set(bytes.subarray(pOff, pOff + toRead), o);
+        o += toRead;
+      }
       return out;
     }
 
     // Overwrite `data` into a stream at a logical offset, in place in `bytes`.
     function patchStream(entry, logOff, data) {
       if (typeof entry === 'string') entry = find(entry);
-      for (var o = 0; o < data.length; o++) bytes[physOffset(entry, logOff + o)] = data[o];
+      var isMini = entry.size < miniCutoff && entry.type !== 5;
+      var secSize = isMini ? miniSectorSize : sectorSize;
+      var o = 0;
+      while (o < data.length) {
+        var pOff = physOffset(entry, logOff + o);
+        var remInSec = secSize - ((logOff + o) % secSize);
+        var toWrite = Math.min(data.length - o, remInSec);
+        bytes.set(data.subarray(o, o + toWrite), pOff);
+        o += toWrite;
+      }
     }
 
     return {

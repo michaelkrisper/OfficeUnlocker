@@ -158,6 +158,12 @@ function buildEncryptedOoxmlOle2() {
   ]);
 }
 
+function buildEncryptedPackageOle2() {
+  return buildCfb([
+    { name: 'EncryptedPackage', data: new Uint8Array(4096) }
+  ]);
+}
+
 // --- PST -------------------------------------------------------------------
 
 function pstCrc(bytes, start, len) {
@@ -270,6 +276,6 @@ function readMultiBlockPassword(bytes) {
 
 module.exports = {
   buildProtectedOds, buildEncryptedOdt,
-  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2,
+  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2, buildEncryptedPackageOle2,
   buildUnicodePst, buildUnicodePstMultiBlock, readPstPassword, readMultiBlockPassword, pstCrc
 };

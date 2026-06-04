@@ -296,6 +296,12 @@ async function readEntry(buffer, path) {
     await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
   });
 
+  await test('detects encrypted OOXML stored in OLE2 (EncryptedPackage only)', async () => {
+    const input = fixtures.buildEncryptedPackageOle2();
+    assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
+    await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
   await test('removes a VBA project password (DPB -> DPx)', () => {
     const input = fixtures.buildVbaCfb();
     const res = OleLock.unlockVbaProjectBin(input);

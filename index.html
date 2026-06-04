@@ -395,7 +395,10 @@
       function setBusy(busy, label) {
         unlockButton.disabled = busy || !selectedFile;
         if (busy) {
-          unlockButton.innerHTML = '<span class="spinner"></span>' + label;
+          unlockButton.innerHTML = '<span class="spinner"></span>';
+          if (label) {
+            unlockButton.appendChild(document.createTextNode(label));
+          }
         } else {
           unlockButton.textContent = 'Unlock & Download';
         }

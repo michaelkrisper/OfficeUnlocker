@@ -250,6 +250,71 @@ function buildUnicodePst(passwordCrc, crypt = 1) {
   return file;
 }
 
+// Builds a Unicode PST whose message-store data spans TWO blocks via an XBLOCK:
+// the BTH header lives in block 0, the PidTagPstPassword record in block 1
+// (referenced by a HID whose block index is 1).
+function buildUnicodePstMultiBlock(passwordCrc) {
+  const NBT = 0x400, BBT = 0x600, XB = 0x800, B0 = 0x900, B1 = 0xa00;
+  const file = new Uint8Array(0x1000);
+  const w16 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; };
+  const w32 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff; };
+
+  file[0] = 0x21; file[1] = 0x42; file[2] = 0x44; file[3] = 0x4e;
+  w16(file, 0x0a, 23); file[0x201] = 1; // Unicode, permute
+  w32(file, 0xd8, 0x10); file[0xe0] = NBT & 0xff; file[0xe1] = (NBT >> 8) & 0xff;
+  w32(file, 0xe8, 0x20); file[0xf0] = BBT & 0xff; file[0xf1] = (BBT >> 8) & 0xff;
+
+  const STORE = 6, BID0 = 8, BID1 = 12; // STORE is internal (bit 1 set); leaves have it clear
+
+  // NBT leaf: message store -> XBLOCK bid.
+  w32(file, NBT + 0, 0x21); file[NBT + 8] = STORE;
+  file[NBT + 488] = 1; file[NBT + 489] = 1; file[NBT + 490] = 32; file[NBT + 491] = 0;
+
+  // XBLOCK (not encoded): btype=1, cLevel=1, cEnt=2, lcbTotal, rgbid[2].
+  const xcb = 24;
+  file[XB + 0] = 0x01; file[XB + 1] = 0x01; w16(file, XB + 2, 2); w32(file, XB + 4, 46);
+  file[XB + 8] = BID0; file[XB + 16] = BID1;
+  trailer(XB, xcb, STORE);
+
+  // Block 0: HNHDR + BTHHEADER; hidRoot points into block 1 (block index 1).
+  const d0 = new Uint8Array(28);
+  w16(d0, 0, 20); d0[2] = 0xec; d0[3] = 0xbc; w32(d0, 4, 0x20);   // HNHDR, hidUserRoot=idx1/blk0
+  d0[12] = 0xb5; d0[13] = 2; d0[14] = 6; d0[15] = 0; w32(d0, 16, 0x10020); // hidRoot=idx1/blk1
+  w16(d0, 20, 1); w16(d0, 22, 0); w16(d0, 24, 12); w16(d0, 26, 20); // HNPAGEMAP
+  file.set(d0, B0); PstUnlock._encodeBlock(file, B0, 28, 1, BID0); trailer(B0, 28, BID0);
+
+  // Block 1: HNPAGEHDR + the PidTagPstPassword PC record.
+  const d1 = new Uint8Array(18);
+  w16(d1, 0, 10);                                                 // HNPAGEHDR.ibHnpm
+  w16(d1, 2, 0x67ff); w16(d1, 4, 0x0003); w32(d1, 6, passwordCrc); // PC record
+  w16(d1, 10, 1); w16(d1, 12, 0); w16(d1, 14, 2); w16(d1, 16, 10); // HNPAGEMAP
+  file.set(d1, B1); PstUnlock._encodeBlock(file, B1, 18, 1, BID1); trailer(B1, 18, BID1);
+
+  // BBT leaf: 3 entries (XBLOCK, block0, block1).
+  const ent = [[STORE, XB, xcb], [BID0, B0, 28], [BID1, B1, 18]];
+  ent.forEach((e, i) => {
+    const o = BBT + i * 24;
+    file[o] = e[0]; file[o + 8] = e[1] & 0xff; file[o + 9] = (e[1] >> 8) & 0xff;
+    w16(file, o + 16, e[2]); w16(file, o + 18, 2);
+  });
+  file[BBT + 488] = 3; file[BBT + 489] = 3; file[BBT + 490] = 24; file[BBT + 491] = 0;
+
+  return file;
+
+  function trailer(ib, cb, bid) {
+    const aligned = Math.ceil((cb + 16) / 64) * 64;
+    const t = ib + aligned - 16;
+    w16(file, t, cb); w32(file, t + 4, pstCrc(file, ib, cb)); w32(file, t + 8, bid);
+  }
+}
+
+// Decode block 1 of the multi-block fixture and read the password value.
+function readMultiBlockPassword(bytes) {
+  const dec = bytes.slice(0xa00, 0xa00 + 18);
+  PstUnlock._decodeBlock(dec, 0, 18, 1, 12);
+  return (dec[6] | (dec[7] << 8) | (dec[8] << 16) | (dec[9] << 24)) >>> 0;
+}
+
 function readPstPassword(bytes, crypt = 1, BLOCK = 0x800, cb = 46) {
   const dec = bytes.slice(BLOCK, BLOCK + cb);
   PstUnlock._decodeBlock(dec, 0, cb, crypt, 4);
@@ -539,7 +604,7 @@ async function buildAgileEncryptedXlsx(pw = PW) {
 
 module.exports = {
   buildRc4Pdf, buildAesPdfWithObjStm, buildUserPasswordPdf, buildAes256R6Pdf,
-  buildUnicodePst, readPstPassword, pstCrc,
+  buildUnicodePst, buildUnicodePstMultiBlock, readPstPassword, readMultiBlockPassword, pstCrc,
   buildProtectedOds, buildEncryptedOdt,
   buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2,
   buildStandardEncryptedXlsx, buildAgileEncryptedXlsx

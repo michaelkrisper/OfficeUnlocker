@@ -166,6 +166,15 @@ async function readEntry(buffer, path) {
     );
   });
 
+  await test('getExtension parses extensions correctly', () => {
+    assert.strictEqual(OfficeUnlocker.getExtension('file.txt'), 'txt');
+    assert.strictEqual(OfficeUnlocker.getExtension('file.TXT'), 'txt');
+    assert.strictEqual(OfficeUnlocker.getExtension('archive.tar.gz'), 'gz');
+    assert.strictEqual(OfficeUnlocker.getExtension('noextension'), '');
+    assert.strictEqual(OfficeUnlocker.getExtension('.hidden'), 'hidden');
+    assert.strictEqual(OfficeUnlocker.getExtension('trailing.'), '');
+  });
+
   await test('isSupported recognises the right extensions', () => {
     assert.ok(OfficeUnlocker.isSupported('Budget.xlsx'));
     assert.ok(OfficeUnlocker.isSupported('Report.DOCX'));

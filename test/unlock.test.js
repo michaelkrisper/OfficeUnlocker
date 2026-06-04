@@ -289,6 +289,17 @@ async function readEntry(buffer, path) {
     assert.deepStrictEqual(res.removed, ['PST password']);
   });
 
+  await test('rejects a structurally valid PST missing a message store', () => {
+    const pst = fixtures.buildUnicodePst(0x12345678);
+    // In buildUnicodePst, the message store NBT entry is written at offset NBT + 0
+    // (NBT is 0x400), with its NID being 0x21. Changing this simulates a missing store.
+    pst[0x400] = 0x99;
+    assert.throws(
+      () => PstUnlock.unlock(pst),
+      (err) => err.code === 'PST_INVALID' && err.message === 'Could not locate the PST message store.'
+    );
+  });
+
   // --- OpenDocument ---------------------------------------------------------
 
   await test('removes sheet protection from an .ods (OpenDocument)', async () => {

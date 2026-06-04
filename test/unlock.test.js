@@ -293,6 +293,13 @@ async function readEntry(buffer, path) {
     assert.strictEqual(fixtures.readPstPassword(res.bytes, 2), 0, 'cyclic password not zeroed');
   });
 
+  await test('removes the password from a multi-block (XBLOCK) message store', () => {
+    const pst = fixtures.buildUnicodePstMultiBlock(0xabad1dea);
+    const res = PstUnlock.unlock(pst);
+    assert.ok(res.changed && res.hadPassword, 'multi-block password not removed');
+    assert.strictEqual(fixtures.readMultiBlockPassword(res.bytes), 0, 'password (block 1) not zeroed');
+  });
+
   // --- Dispatcher routing ---------------------------------------------------
 
   await test('OfficeUnlocker.unlock routes PDF and PST by content', async () => {

@@ -275,43 +275,75 @@
 
   // ---- Heap-on-Node / Property Context --------------------------------------
 
-  // Resolve a HID to its byte offset within the (decoded) single-block heap.
-  function resolveHid(data, hid) {
-    var hidType = hid & 0x1f;
-    if (hidType !== 0) return null;            // not a HID (could be an NID)
-    var hidIndex = (hid >>> 5) & 0x7ff;
-    if (hidIndex === 0) return null;
-    var ibHnpm = u16(data, 0);                 // HNHDR.ibHnpm
-    var cAlloc = u16(data, ibHnpm);
-    if (hidIndex > cAlloc) return null;
-    var rgibAlloc = ibHnpm + 4;
-    var start = u16(data, rgibAlloc + (hidIndex - 1) * 2);
-    var end = u16(data, rgibAlloc + hidIndex * 2);
-    return { start: start, end: end };
+  // Collect the leaf data blocks backing a node's data BID. A plain data block
+  // yields one entry; an internal block (XBLOCK / XXBLOCK) is walked recursively
+  // so multi-block message stores are reassembled. Each entry carries the
+  // block's decoded payload (internal blocks themselves are never encoded).
+  function collectDataBlocks(bytes, bid, fmt, depth) {
+    if (depth > 8) return null;
+    var loc = findBlock(bytes, fmt.bbtRoot, bid, fmt);
+    if (!loc) return null;
+    if ((bid & 2n) !== 2n) {
+      var decoded = bytes.subarray(loc.ib, loc.ib + loc.cb).slice();
+      decodeBlock(decoded, 0, loc.cb, fmt.crypt, Number(bid & 0xffffffffn));
+      return [{ ib: loc.ib, cb: loc.cb, bid: bid, decoded: decoded }];
+    }
+    var raw = bytes.subarray(loc.ib, loc.ib + loc.cb);
+    if (raw[0] !== 0x01) return null;                  // btype must be 0x01
+    var cEnt = u16(raw, 2);
+    var leaves = [];
+    for (var i = 0; i < cEnt; i++) {
+      var off = 8 + i * fmt.bidSize;
+      var childBid = fmt.unicode ? bid64(raw, off) : BigInt(u32(raw, off));
+      var sub = collectDataBlocks(bytes, childBid, fmt, depth + 1);
+      if (!sub) return null;
+      leaves = leaves.concat(sub);
+    }
+    return leaves;
   }
 
-  // Locate the PidTagPstPassword record inside the message-store PC and return
-  // the absolute offset of its 4-byte value within `data`, or null.
-  function findPasswordValueOffset(data) {
-    if (data[2] !== 0xec) return null;         // HNHDR.bSig must be 0xEC
-    var hidUserRoot = u32(data, 4);            // HNHDR.hidUserRoot -> BTHHEADER
-    var hdr = resolveHid(data, hidUserRoot);
+  // Resolve a HID to its location within a (possibly multi-block) heap. Honours
+  // the HID's block index so heaps spread over several blocks work.
+  function resolveHid(blocks, hid) {
+    if ((hid & 0x1f) !== 0) return null;               // not a HID
+    var hidIndex = (hid >>> 5) & 0x7ff;
+    if (hidIndex === 0) return null;
+    var blockIdx = (hid >>> 16) & 0xffff;              // hidBlockIndex
+    if (blockIdx >= blocks.length) return null;
+    var buf = blocks[blockIdx].decoded;
+    var ibHnpm = u16(buf, 0);                           // HNHDR / HNPAGEHDR
+    var cAlloc = u16(buf, ibHnpm);
+    if (hidIndex > cAlloc) return null;
+    var rgibAlloc = ibHnpm + 4;
+    return {
+      blockIdx: blockIdx, buf: buf,
+      start: u16(buf, rgibAlloc + (hidIndex - 1) * 2),
+      end: u16(buf, rgibAlloc + hidIndex * 2)
+    };
+  }
+
+  // Locate the PidTagPstPassword record in the message-store PC. Returns
+  // { blockIdx, offset } pointing at its 4-byte value, or null.
+  function findPasswordValueOffset(blocks) {
+    var buf0 = blocks[0].decoded;
+    if (buf0[2] !== 0xec) return null;                 // HNHDR.bSig must be 0xEC
+    var hidUserRoot = u32(buf0, 4);                    // -> BTHHEADER
+    var hdr = resolveHid(blocks, hidUserRoot);
     if (!hdr) return null;
-    var bType = data[hdr.start];               // BTHHEADER.bType (0xB5)
-    var cbKey = data[hdr.start + 1];
-    var cbEnt = data[hdr.start + 2];
-    var bIdxLevels = data[hdr.start + 3];
-    var hidRoot = u32(data, hdr.start + 4);
+    var hb = hdr.buf;
+    var bType = hb[hdr.start];
+    var cbKey = hb[hdr.start + 1];
+    var cbEnt = hb[hdr.start + 2];
+    var bIdxLevels = hb[hdr.start + 3];
+    var hidRoot = u32(hb, hdr.start + 4);
     if (bType !== 0xb5 || bIdxLevels !== 0) return null; // only flat PC BTHs
-    var recs = resolveHid(data, hidRoot);
+    var recs = resolveHid(blocks, hidRoot);
     if (!recs) return null;
-    var recSize = cbKey + cbEnt;               // PC: 2 + 6 = 8
+    var rb = recs.buf, recSize = cbKey + cbEnt;          // PC: 2 + 6 = 8
     if (recSize <= 0) return null;
     for (var p = recs.start; p + recSize <= recs.end; p += recSize) {
-      var propId = u16(data, p);
-      if (propId === PROP_PST_PASSWORD) {
-        // PCBTH: wPropId(2) wPropType(2) dwValueHnid(4) -> value at p + cbKey + 2.
-        return p + cbKey + 2;
+      if (u16(rb, p) === PROP_PST_PASSWORD) {
+        return { blockIdx: recs.blockIdx, offset: p + cbKey + 2 };
       }
     }
     return null;
@@ -331,42 +363,31 @@
     var storeBid = findNodeBid(bytes, fmt.nbtRoot, NID_MESSAGE_STORE, fmt);
     if (storeBid === null) throw fail('PST_INVALID', 'Could not locate the PST message store.');
 
-    if (fmt.unicode && (storeBid & 2n) === 2n) {
-      throw fail('PST_UNSUPPORTED', 'The message store spans multiple blocks; this layout is not supported.');
-    }
+    var blocks = collectDataBlocks(bytes, storeBid, fmt, 0);
+    if (!blocks || !blocks.length) throw fail('PST_INVALID', 'Could not read the message store data block(s).');
 
-    var block = findBlock(bytes, fmt.bbtRoot, storeBid, fmt);
-    if (!block) throw fail('PST_INVALID', 'Could not locate the message store data block.');
-
-    // Decode the block payload (cb bytes at block.ib) into a working copy.
-    var cryptKey = Number(storeBid & 0xffffffffn);
-    var data = bytes.subarray(block.ib, block.ib + block.cb).slice();
-    decodeBlock(data, 0, block.cb, fmt.crypt, cryptKey);
-
-    var valueOff = findPasswordValueOffset(data);
-    if (valueOff === null) {
+    var loc = findPasswordValueOffset(blocks);
+    if (!loc) {
       // No PC password property found — nothing to do.
       return { bytes: bytes, changed: false, hadPassword: false };
     }
 
-    var current = u32(data, valueOff);
+    var blk = blocks[loc.blockIdx];
+    var current = u32(blk.decoded, loc.offset);
     if (current === 0) {
       return { bytes: bytes, changed: false, hadPassword: false };
     }
 
-    // Zero the password CRC.
-    data[valueOff] = 0; data[valueOff + 1] = 0; data[valueOff + 2] = 0; data[valueOff + 3] = 0;
+    // Zero the password CRC in the owning block, re-encode and write it back.
+    blk.decoded[loc.offset] = 0; blk.decoded[loc.offset + 1] = 0;
+    blk.decoded[loc.offset + 2] = 0; blk.decoded[loc.offset + 3] = 0;
+    encodeBlock(blk.decoded, 0, blk.cb, fmt.crypt, Number(blk.bid & 0xffffffffn));
+    bytes.set(blk.decoded.subarray(0, blk.cb), blk.ib);
 
-    // Re-encode and write the block back.
-    encodeBlock(data, 0, block.cb, fmt.crypt, cryptKey);
-    bytes.set(data, block.ib);
-
-    // Recompute the block trailer CRC (over the cb encoded data bytes).
-    // The trailer sits at the end of the 64-byte aligned slot for this block.
-    var aligned = Math.ceil((block.cb + fmt.blockTrailer) / 64) * 64;
-    var trailerOff = block.ib + aligned - fmt.blockTrailer;
-    var newCrc = computeCrc(bytes, block.ib, block.cb);
-    // BLOCKTRAILER: cb(2), wSig(2), dwCRC(4), bid. dwCRC at +4.
+    // Recompute that block's trailer CRC (over its cb encoded data bytes).
+    var aligned = Math.ceil((blk.cb + fmt.blockTrailer) / 64) * 64;
+    var trailerOff = blk.ib + aligned - fmt.blockTrailer;
+    var newCrc = computeCrc(bytes, blk.ib, blk.cb);
     bytes[trailerOff + 4] = newCrc & 0xff;
     bytes[trailerOff + 5] = (newCrc >>> 8) & 0xff;
     bytes[trailerOff + 6] = (newCrc >>> 16) & 0xff;

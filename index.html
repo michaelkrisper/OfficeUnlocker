@@ -251,24 +251,6 @@
     .status--error { background: var(--danger-bg); color: var(--danger); }
     .status--info { background: var(--surface-2); color: var(--text-muted); }
 
-    .features {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0;
-      margin-top: 28px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      overflow: hidden;
-    }
-    .feature {
-      text-align: center;
-      padding: 16px 8px;
-      border-right: 1px solid var(--border);
-    }
-    .feature:last-child { border-right: none; }
-    .feature__title { font-size: 0.82rem; font-weight: 600; }
-    .feature__text { font-size: 0.72rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
-
     .note {
       margin: 24px 0 0;
       font-size: 0.78rem;
@@ -290,9 +272,6 @@
 
     @media (max-width: 480px) {
       .card__header, .card__body { padding-left: 22px; padding-right: 22px; }
-      .features { grid-template-columns: 1fr; }
-      .feature { border-right: none; border-bottom: 1px solid var(--border); }
-      .feature:last-child { border-bottom: none; }
     }
   </style>
 </head>
@@ -307,8 +286,7 @@
       </div>
       <h1>OfficeUnlocker</h1>
       <p class="subtitle">
-        Remove protection from Office, OpenDocument, PDF, VBA and Outlook files —
-        entirely in your browser.
+        Remove protection from Office, PDF and Outlook files — in your browser.
       </p>
     </div>
 
@@ -350,31 +328,11 @@
 
       <p class="status" id="status" role="status" aria-live="polite"></p>
 
-      <div class="features">
-        <div class="feature">
-          <div class="feature__title">Private</div>
-          <div class="feature__text">Files never leave your device</div>
-        </div>
-        <div class="feature">
-          <div class="feature__title">Instant</div>
-          <div class="feature__text">Processed locally in seconds</div>
-        </div>
-        <div class="feature">
-          <div class="feature__title">Free</div>
-          <div class="feature__text">No account, no limits</div>
-        </div>
-      </div>
-
       <p class="note">
-        <strong>What this does:</strong> removes editing/sheet/document protection
-        from Office (incl. legacy <em>.xls/.doc/.ppt</em>) and OpenDocument files,
-        PDF usage restrictions (printing, copying, editing), VBA macro project
-        passwords and the Outlook <em>.pst</em> password. It <strong>cannot</strong>
-        open files locked with an <em>open password</em> (full-file encryption,
-        including PDF view passwords) — those require the original password and are
-        detected automatically. Newer formats are validated against test vectors,
-        not a large file corpus — your original file is never modified, so keep it
-        until you've confirmed the result.
+        Files never leave your device. Removes sheet/workbook/document protection
+        (Office &amp; OpenDocument), PDF restrictions, VBA and Outlook <em>.pst</em>
+        passwords. Files locked with a real open/view password can't be opened and
+        are reported. Your original is never changed.
       </p>
     </div>
   </main>

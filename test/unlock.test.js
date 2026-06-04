@@ -102,6 +102,57 @@ async function readEntry(buffer, path) {
 (async function run() {
   console.log('\nOfficeUnlocker tests\n');
 
+  // --- XML stripElement -----------------------------------------------------
+
+  await test('stripElement removes self-closing tags', async () => {
+    const input = '<root><sheetProtection attr="val"/><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement removes paired tags with content', async () => {
+    const input = '<root><sheetProtection>some data here</sheetProtection><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement removes multiline paired tags', async () => {
+    const input = '<root><w:documentProtection\n  attr="val">\n  data\n</w:documentProtection><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'w:documentProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement ensures tags with common prefix but different names are not removed', async () => {
+    const input = '<root><sheetProtection/><sheetProtectionX/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><sheetProtectionX/></root>');
+  });
+
+  await test('stripElement handles regex escaping in tag names', async () => {
+    const input = '<root><tag:with.regex*chars/><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'tag:with.regex*chars');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement handles multiple occurrences of the same tag', async () => {
+    const input = '<root><tag/><data/><tag></tag></root>';
+    const res = OfficeUnlocker.stripElement(input, 'tag');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement correctly reports no removal when tag is absent', async () => {
+    const input = '<root><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, false);
+    assert.strictEqual(res.content, input);
+  });
+
   await test('removes workbook + sheet protection from .xlsx', async () => {
     const input = await buildProtectedXlsx();
     const { blob, removed } = await OfficeUnlocker.unlock(input);

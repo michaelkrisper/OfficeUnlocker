@@ -79,7 +79,7 @@
     // Escape ":" is fine inside a regex character context; build patterns.
     var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Paired form: <tag ...> ... </tag>
-    var paired = new RegExp('<' + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + escaped + '>', 'g');
+    var paired = new RegExp('<' + escaped + '\\b(?:[^>]*[^/])?>[\\s\\S]*?<\\/' + escaped + '>', 'g');
     // Self-closing or empty form: <tag .../> or <tag ...>
     var single = new RegExp('<' + escaped + '\\b[^>]*\\/?>', 'g');
 

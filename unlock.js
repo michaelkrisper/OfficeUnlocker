@@ -212,6 +212,21 @@
     return { blob: blob, removed: removed, kind: isOdf ? 'odf' : 'ooxml' };
   }
 
+  async function processXmlFile(entry, tags) {
+    var content = await entry.async('string');
+    var changed = false;
+    var removedTags = [];
+    for (var t = 0; t < tags.length; t++) {
+      var result = stripElement(content, tags[t]);
+      if (result.removed) {
+        content = result.content;
+        changed = true;
+        if (removedTags.indexOf(tags[t]) === -1) removedTags.push(tags[t]);
+      }
+    }
+    return { changed: changed, content: content, removedTags: removedTags };
+  }
+
   async function stripOoxml(zip) {
     var removed = [];
     var paths = Object.keys(zip.files);
@@ -223,17 +238,15 @@
       var tags = tagsForPath(path);
       if (!tags) continue;
 
-      var content = await entry.async('string');
-      var changed = false;
-      for (var t = 0; t < tags.length; t++) {
-        var result = stripElement(content, tags[t]);
-        if (result.removed) {
-          content = result.content;
-          changed = true;
-          if (removed.indexOf(tags[t]) === -1) removed.push(tags[t]);
+      var result = await processXmlFile(entry, tags);
+      if (result.changed) {
+        zip.file(path, result.content);
+        for (var r = 0; r < result.removedTags.length; r++) {
+          if (removed.indexOf(result.removedTags[r]) === -1) {
+            removed.push(result.removedTags[r]);
+          }
         }
       }
-      if (changed) zip.file(path, content);
     }
     return removed;
   }

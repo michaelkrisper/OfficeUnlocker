@@ -84,6 +84,23 @@
     }
   }
 
+  function parseWordFib(cfb) {
+    var wd = cfb.find('WordDocument');
+    if (!wd) return null;
+    var fib = cfb.readStream(wd);
+    if (!fib || fib.length < 0x19a) return null;
+    if (u16(fib, 0) !== 0xa5ec) return null;            // not a valid FIB
+    var flags = u16(fib, 0x0a);
+    if (flags & 0x0100) throw err('ENCRYPTED', ENCRYPTED_MSG); // fEncrypted
+
+    var tableName = (flags & 0x0200) ? '1Table' : '0Table';
+    var fcDop = u32(fib, 0x192);
+    var lcbDop = u32(fib, 0x196);
+    if (lcbDop < 8) return null;                          // no Dop present
+
+    return { tableName: tableName, offset: fcDop + 0x07 };
+  }
+
   // Legacy Word: reject if encrypted, otherwise clear the document-protection
   // ("Restrict Editing") master switch fProtEnabled in the Dop.
   //
@@ -91,23 +108,13 @@
   // index 31 of the FC/LCB array). Dop byte 0x07 holds fProtEnabled (0x02);
   // clearing it disables protection regardless of the stored password hash.
   function unlockWordIn(cfb, removed) {
-    var wd = cfb.find('WordDocument');
-    if (!wd) return;
-    var fib = cfb.readStream(wd);
-    if (!fib || fib.length < 0x19a) return;
-    if (u16(fib, 0) !== 0xa5ec) return;            // not a valid FIB
-    var flags = u16(fib, 0x0a);
-    if (flags & 0x0100) throw err('ENCRYPTED', ENCRYPTED_MSG); // fEncrypted
+    var parsed = parseWordFib(cfb);
+    if (!parsed) return;
 
-    var tableName = (flags & 0x0200) ? '1Table' : '0Table';
-    var fcDop = u32(fib, 0x192);
-    var lcbDop = u32(fib, 0x196);
-    if (lcbDop < 8) return;                          // no Dop present
-
-    var table = cfb.find(tableName);
+    var table = cfb.find(parsed.tableName);
     if (!table) return;
     var tbl = cfb.readStream(table);
-    var off = fcDop + 0x07;
+    var off = parsed.offset;
     if (!tbl || off >= tbl.length) return;
     if (tbl[off] & 0x02) {
       cfb.patchStream(table, off, new Uint8Array([tbl[off] & ~0x02]));

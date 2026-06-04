@@ -22,11 +22,11 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.PstUnlock = factory();
+    root.PstUnlock = factory(root.Utils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   var PROP_PST_PASSWORD = 0x67ff;
@@ -146,8 +146,8 @@
 
   // ---- little-endian readers ------------------------------------------------
 
-  function u16(b, o) { return b[o] | (b[o + 1] << 8); }
-  function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+  var u16 = Utils.u16;
+  var u32 = Utils.u32;
   function u64(b, o) { return u32(b, o) + u32(b, o + 4) * 0x100000000; } // as Number (offsets/sizes)
   function bid64(b, o) {
     var lo = BigInt(u32(b, o)), hi = BigInt(u32(b, o + 4));

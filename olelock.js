@@ -15,11 +15,11 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./ole2.js'));
+    module.exports = factory(require('./ole2.js'), require('./utils.js'));
   } else {
-    root.OleLock = factory(root.Ole2);
+    root.OleLock = factory(root.Ole2, root.Utils);
   }
-})(typeof self !== 'undefined' ? self : this, function (Ole2) {
+})(typeof self !== 'undefined' ? self : this, function (Ole2, Utils) {
   'use strict';
 
   function err(code, message) { var e = new Error(message); e.code = code; return e; }
@@ -37,8 +37,8 @@
   var PROTECT_RECORDS = [BIFF_PROTECT, BIFF_PASSWORD, BIFF_WINDOWPROTECT,
     BIFF_OBJECTPROTECT, BIFF_SCENPROTECT, BIFF_SHEETPROTECTION];
 
-  function u16(b, o) { return b[o] | (b[o + 1] << 8); }
-  function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+  var u16 = Utils.u16;
+  var u32 = Utils.u32;
 
   // Remove the VBA project password by renaming the DPB key in the PROJECT
   // stream. Returns true if a change was made.

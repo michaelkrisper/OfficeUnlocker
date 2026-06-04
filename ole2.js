@@ -11,19 +11,19 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.Ole2 = factory();
+    root.Ole2 = factory(root.Utils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   var SIG = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
   var ENDOFCHAIN = 0xfffffffe;
   var FREESECT = 0xffffffff;
 
-  function u16(b, o) { return b[o] | (b[o + 1] << 8); }
-  function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+  var u16 = Utils.u16;
+  var u32 = Utils.u32;
 
   function isOle2(bytes) {
     if (!bytes || bytes.length < 8) return false;

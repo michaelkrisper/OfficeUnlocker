@@ -253,7 +253,7 @@
     }
 
     var removed = [];
-    var targets = ['content.xml', 'styles.xml'];
+    var targets = ['content.xml', 'styles.xml', 'settings.xml'];
     for (var i = 0; i < targets.length; i++) {
       var path = targets[i];
       if (!zip.files[path]) continue;
@@ -263,6 +263,8 @@
       xml = xml.replace(/((?:\w+:)?(?:protected|protection))="true"/g, '$1="false"');
       // Remove the stored protection-key hashes entirely.
       xml = xml.replace(/\s+(?:\w+:)?protection-key(?:-digest-algorithm(?:-gpg)?)?="[^"]*"/g, '');
+      // Remove config items for ProtectStructure and ProtectWindows in OpenDocument files
+      xml = xml.replace(/<config:config-item config:name="Protect(?:Structure|Windows)" config:type="boolean">true<\/config:config-item>/g, (m) => m.replace(">true<", ">false<"));
       if (xml !== before) {
         zip.file(path, xml);
         if (removed.indexOf('document protection') === -1) removed.push('document protection');

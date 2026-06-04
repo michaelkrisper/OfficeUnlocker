@@ -248,6 +248,20 @@ async function readEntry(buffer, path) {
     assert.ok(removed.includes('document protection'));
   });
 
+  await test('removes structure and window protection from an .ods (OpenDocument)', async () => {
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.spreadsheet');
+    zip.file('META-INF/manifest.xml', '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:x"/>');
+    zip.file('settings.xml', '<config:config-item config:name="ProtectStructure" config:type="boolean">true</config:config-item><config:config-item config:name="ProtectWindows" config:type="boolean">true</config:config-item>');
+    const input = await zip.generateAsync({ type: 'nodebuffer' });
+    const { blob, removed, kind } = await OfficeUnlocker.unlock(input);
+    assert.strictEqual(kind, 'odf');
+    const settings = await readEntry(blob, 'settings.xml');
+    assert.ok(/ProtectStructure[^>]*>false</.test(settings), 'ProtectStructure not cleared');
+    assert.ok(/ProtectWindows[^>]*>false</.test(settings), 'ProtectWindows not cleared');
+    assert.ok(removed.includes('document protection'));
+  });
+
   await test('detects an encrypted OpenDocument file', async () => {
     const input = await fixtures.buildEncryptedOdt();
     await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');

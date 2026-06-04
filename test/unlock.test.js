@@ -2,23 +2,18 @@
 
 /*
  * Automated verification of the OfficeUnlocker core logic.
- * Builds real OOXML-shaped ZIP archives that contain protection elements,
- * runs them through unlock(), and asserts the protection is gone while the
- * rest of the document is preserved.
+ * Builds protected sample documents, runs them through unlock(), and asserts
+ * the protection is gone while the rest of the document is preserved.
  */
 
 const assert = require('assert');
 const JSZip = require('jszip');
 const OfficeUnlocker = require('../unlock.js');
-const PdfUnlock = require('../pdfunlock.js');
 const PstUnlock = require('../pstunlock.js');
-const BinCrypto = require('../bincrypto.js');
 const Ole2 = require('../ole2.js');
 const OleLock = require('../olelock.js');
 const fixtures = require('./fixtures.js');
 
-const fromHex = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
-const toHex = (u8) => Array.from(u8).map((b) => b.toString(16).padStart(2, '0')).join('');
 const latin1 = (u8) => Buffer.from(u8).toString('latin1');
 
 let passed = 0;
@@ -53,7 +48,6 @@ async function buildProtectedXlsx() {
       '<sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets>' +
       '</workbook>'
   );
-  // sheet1 uses the self-closing form of sheetProtection ...
   zip.file(
     'xl/worksheets/sheet1.xml',
     '<?xml version="1.0"?><worksheet>' +
@@ -61,7 +55,6 @@ async function buildProtectedXlsx() {
       '<sheetProtection sheet="1" password="CC3F" objects="1" scenarios="1"/>' +
       '</worksheet>'
   );
-  // ... while sheet2 uses the rarer paired form: <sheetProtection ...></sheetProtection>
   zip.file(
     'xl/worksheets/sheet2.xml',
     '<?xml version="1.0"?><worksheet><sheetData/>' +
@@ -177,7 +170,11 @@ async function readEntry(buffer, path) {
     assert.ok(OfficeUnlocker.isSupported('Budget.xlsx'));
     assert.ok(OfficeUnlocker.isSupported('Report.DOCX'));
     assert.ok(OfficeUnlocker.isSupported('Deck.pptx'));
+    assert.ok(OfficeUnlocker.isSupported('Sheet.ods'));
+    assert.ok(OfficeUnlocker.isSupported('Old.xls'));
+    assert.ok(OfficeUnlocker.isSupported('archive.PST'));
     assert.ok(!OfficeUnlocker.isSupported('image.png'));
+    assert.ok(!OfficeUnlocker.isSupported('statement.pdf'), 'pdf is no longer supported');
     assert.ok(!OfficeUnlocker.isSupported('noextension'));
   });
 
@@ -191,74 +188,6 @@ async function readEntry(buffer, path) {
     assert.deepStrictEqual(removed, [], 'reported removals on an unprotected file');
   });
 
-  // --- Crypto primitives (known-answer vectors) ----------------------------
-
-  await test('crypto primitives match published test vectors', () => {
-    assert.strictEqual(toHex(BinCrypto.md5(new Uint8Array(0))), 'd41d8cd98f00b204e9800998ecf8427e');
-    assert.strictEqual(toHex(BinCrypto.md5(fromHex('616263'))), '900150983cd24fb0d6963f7d28e17f72');
-    assert.strictEqual(
-      toHex(BinCrypto.rc4(fromHex('4b6579'), fromHex('506c61696e74657874'))).toUpperCase(),
-      'BBF316E8D940AF0AD3'
-    );
-    // FIPS-197 single block, AES-128 and AES-256.
-    assert.strictEqual(
-      toHex(BinCrypto._decryptBlockForTest(fromHex('69c4e0d86a7b0430d8cdb78070b4c55a'), fromHex('000102030405060708090a0b0c0d0e0f'))),
-      '00112233445566778899aabbccddeeff'
-    );
-    assert.strictEqual(
-      toHex(BinCrypto._decryptBlockForTest(fromHex('8ea2b7ca516745bfeafc49904b496089'), fromHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'))),
-      '00112233445566778899aabbccddeeff'
-    );
-  });
-
-  // --- PDF ------------------------------------------------------------------
-
-  await test('removes RC4 restrictions and decrypts a PDF', () => {
-    const { bytes, secretContent, secretString } = fixtures.buildRc4Pdf();
-    const res = PdfUnlock.unlock(bytes);
-    const out = latin1(res.bytes);
-    assert.ok(res.changed, 'unlock did not report a change');
-    assert.ok(!/\/Encrypt/.test(out), '/Encrypt still present');
-    assert.ok(out.includes(secretContent), 'content stream was not decrypted');
-    assert.ok(out.toLowerCase().includes(Buffer.from(secretString, 'latin1').toString('hex')),
-      'string was not decrypted');
-  });
-
-  await test('removes AES-128 restrictions and expands object streams', () => {
-    const { bytes, secretContent } = fixtures.buildAesPdfWithObjStm();
-    const res = PdfUnlock.unlock(bytes);
-    const out = latin1(res.bytes);
-    assert.ok(res.changed);
-    assert.ok(!/\/Encrypt/.test(out), '/Encrypt still present');
-    assert.ok(out.includes(secretContent), 'AES content stream was not decrypted');
-    assert.ok(/\/Marker/.test(out), 'object-stream object was not promoted');
-    assert.ok(out.toLowerCase().includes(Buffer.from('objstm-worked', 'latin1').toString('hex')),
-      'object-stream string was not decrypted');
-  });
-
-  await test('refuses a PDF that needs an open password', () => {
-    const bytes = fixtures.buildUserPasswordPdf();
-    assert.throws(() => PdfUnlock.unlock(bytes), (err) => err.code === 'ENCRYPTED');
-  });
-
-  await test('removes AES-256 (R6) restrictions and decrypts a PDF', () => {
-    const { bytes, secretContent, secretString } = fixtures.buildAes256R6Pdf();
-    const res = PdfUnlock.unlock(bytes);
-    const out = latin1(res.bytes);
-    assert.ok(res.changed);
-    assert.ok(!/\/Encrypt/.test(out), '/Encrypt still present');
-    assert.ok(out.includes(secretContent), 'AES-256 content stream was not decrypted');
-    assert.ok(out.toLowerCase().includes(Buffer.from(secretString, 'latin1').toString('hex')),
-      'AES-256 string was not decrypted');
-  });
-
-  await test('leaves an unencrypted PDF unchanged', () => {
-    const plain = new Uint8Array(Buffer.from(
-      '%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1'));
-    const res = PdfUnlock.unlock(plain);
-    assert.ok(!res.changed, 'reported a change on an unencrypted PDF');
-  });
-
   // --- PST ------------------------------------------------------------------
 
   await test('removes the password from a Unicode PST', () => {
@@ -267,7 +196,6 @@ async function readEntry(buffer, path) {
     const res = PstUnlock.unlock(pst);
     assert.ok(res.changed && res.hadPassword, 'password was not removed');
     assert.strictEqual(fixtures.readPstPassword(res.bytes), 0, 'password value not zeroed');
-    // The rewritten block must carry a consistent CRC.
     const cb = 46, tOff = 0x800 + Math.ceil((cb + 16) / 64) * 64 - 16;
     const stored = (res.bytes[tOff + 4] | (res.bytes[tOff + 5] << 8) | (res.bytes[tOff + 6] << 16) | (res.bytes[tOff + 7] << 24)) >>> 0;
     assert.strictEqual(stored, fixtures.pstCrc(res.bytes, 0x800, cb), 'block CRC not recomputed');
@@ -300,23 +228,11 @@ async function readEntry(buffer, path) {
     assert.strictEqual(fixtures.readMultiBlockPassword(res.bytes), 0, 'password (block 1) not zeroed');
   });
 
-  // --- Dispatcher routing ---------------------------------------------------
-
-  await test('OfficeUnlocker.unlock routes PDF and PST by content', async () => {
-    const pdf = fixtures.buildRc4Pdf().bytes;
-    const pdfRes = await OfficeUnlocker.unlock(pdf);
-    assert.strictEqual(pdfRes.kind, 'pdf');
-    assert.deepStrictEqual(pdfRes.removed, ['PDF restrictions']);
-
+  await test('OfficeUnlocker routes PST by content', async () => {
     const pst = fixtures.buildUnicodePst(0x12345678);
-    const pstRes = await OfficeUnlocker.unlock(pst);
-    assert.strictEqual(pstRes.kind, 'pst');
-    assert.deepStrictEqual(pstRes.removed, ['PST password']);
-  });
-
-  await test('isSupported recognises pdf and pst', () => {
-    assert.ok(OfficeUnlocker.isSupported('statement.pdf'));
-    assert.ok(OfficeUnlocker.isSupported('archive.PST'));
+    const res = await OfficeUnlocker.unlock(pst);
+    assert.strictEqual(res.kind, 'pst');
+    assert.deepStrictEqual(res.removed, ['PST password']);
   });
 
   // --- OpenDocument ---------------------------------------------------------
@@ -337,15 +253,13 @@ async function readEntry(buffer, path) {
     await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
   });
 
-  // --- Legacy OLE2 (.xls) + VBA --------------------------------------------
+  // --- Legacy OLE2 (.xls / .doc) + VBA -------------------------------------
 
   await test('removes protection records from a legacy .xls', () => {
     const input = fixtures.buildProtectedXls();
-    const res = PstUnlock.isPst(input);
-    assert.ok(!res, 'should not be detected as PST');
+    assert.ok(!PstUnlock.isPst(input), 'should not be detected as PST');
     const out = OleLock.unlock(input);
     assert.ok(out.removed.includes('worksheet/workbook protection'));
-    // Re-read the Workbook stream and confirm the protect records are zeroed.
     const cfb = Ole2.parse(out.bytes);
     const wb = cfb.readStream('Workbook');
     let pos = 0, sawProtect = false;
@@ -367,7 +281,6 @@ async function readEntry(buffer, path) {
     const out = OleLock.unlock(input);
     assert.ok(out.removed.includes('document protection'));
     const tbl = Ole2.parse(out.bytes).readStream('0Table');
-    // fcDop = 16, fProtEnabled is bit 0x02 of Dop byte 0x07.
     assert.strictEqual(tbl[16 + 0x07] & 0x02, 0, 'fProtEnabled not cleared');
     assert.strictEqual(tbl[16 + 0x07], 0x09, 'other Dop bits were disturbed');
   });
@@ -377,9 +290,10 @@ async function readEntry(buffer, path) {
     assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
   });
 
-  await test('detects encrypted OOXML stored in OLE2', () => {
+  await test('detects encrypted OOXML stored in OLE2 (not decrypted)', async () => {
     const input = fixtures.buildEncryptedOoxmlOle2();
     assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
+    await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
   });
 
   await test('removes a VBA project password (DPB -> DPx)', () => {
@@ -396,29 +310,6 @@ async function readEntry(buffer, path) {
     const out = await OfficeUnlocker.unlock(input);
     assert.strictEqual(out.kind, 'ole2');
     assert.ok(out.removed.includes('worksheet/workbook protection'));
-  });
-
-  // --- Encrypted Office with default password (VelvetSweatshop) -------------
-
-  await test('decrypts a Standard-encrypted Office file (default password)', async () => {
-    const { bytes } = await fixtures.buildStandardEncryptedXlsx();
-    const out = await OfficeUnlocker.unlock(bytes);
-    assert.ok(out.removed.includes('encryption (default password)'), 'decryption not reported');
-    const workbook = await readEntry(out.blob, 'xl/workbook.xml');
-    assert.ok(!/workbookProtection/.test(workbook), 'inner protection not stripped');
-  });
-
-  await test('decrypts an Agile-encrypted Office file (default password)', async () => {
-    const { bytes } = await fixtures.buildAgileEncryptedXlsx();
-    const out = await OfficeUnlocker.unlock(bytes);
-    assert.ok(out.removed.includes('encryption (default password)'), 'decryption not reported');
-    const workbook = await readEntry(out.blob, 'xl/workbook.xml');
-    assert.ok(!/workbookProtection/.test(workbook), 'inner protection not stripped');
-  });
-
-  await test('reports a non-default encrypted Office file as encrypted', async () => {
-    const { bytes } = await fixtures.buildAgileEncryptedXlsx('s3cret-not-default');
-    await assert.rejects(() => OfficeUnlocker.unlock(bytes), (err) => err.code === 'ENCRYPTED');
   });
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');

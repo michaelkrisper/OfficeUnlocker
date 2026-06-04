@@ -213,7 +213,7 @@
   }
 
   async function stripOoxml(zip) {
-    var removed = [];
+    var removed = new Set();
     var paths = Object.keys(zip.files);
     for (var i = 0; i < paths.length; i++) {
       var path = paths[i];
@@ -230,12 +230,12 @@
         if (result.removed) {
           content = result.content;
           changed = true;
-          if (removed.indexOf(tags[t]) === -1) removed.push(tags[t]);
+          removed.add(tags[t]);
         }
       }
       if (changed) zip.file(path, content);
     }
-    return removed;
+    return Array.from(removed);
   }
 
   // OpenDocument stores protection as XML *attributes* (e.g. table:protected),
@@ -252,7 +252,7 @@
       }
     }
 
-    var removed = [];
+    var removed = new Set();
     var targets = ['content.xml', 'styles.xml'];
     for (var i = 0; i < targets.length; i++) {
       var path = targets[i];
@@ -265,10 +265,10 @@
       xml = xml.replace(/\s+(?:\w+:)?protection-key(?:-digest-algorithm(?:-gpg)?)?="[^"]*"/g, '');
       if (xml !== before) {
         zip.file(path, xml);
-        if (removed.indexOf('document protection') === -1) removed.push('document protection');
+        removed.add('document protection');
       }
     }
-    return removed;
+    return Array.from(removed);
   }
 
   return {

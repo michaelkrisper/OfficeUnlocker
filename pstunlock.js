@@ -275,19 +275,13 @@
 
   // ---- Heap-on-Node / Property Context --------------------------------------
 
-  // Collect the leaf data blocks backing a node's data BID. A plain data block
-  // yields one entry; an internal block (XBLOCK / XXBLOCK) is walked recursively
-  // so multi-block message stores are reassembled. Each entry carries the
-  // block's decoded payload (internal blocks themselves are never encoded).
-  function collectDataBlocks(bytes, bid, fmt, depth) {
-    if (depth > 8) return null;
-    var loc = findBlock(bytes, fmt.bbtRoot, bid, fmt);
-    if (!loc) return null;
-    if ((bid & 2n) !== 2n) {
-      var decoded = bytes.subarray(loc.ib, loc.ib + loc.cb).slice();
-      decodeBlock(decoded, 0, loc.cb, fmt.crypt, Number(bid & 0xffffffffn));
-      return [{ ib: loc.ib, cb: loc.cb, bid: bid, decoded: decoded }];
-    }
+  function decodeDataBlock(bytes, loc, bid, fmt) {
+    var decoded = bytes.subarray(loc.ib, loc.ib + loc.cb).slice();
+    decodeBlock(decoded, 0, loc.cb, fmt.crypt, Number(bid & 0xffffffffn));
+    return [{ ib: loc.ib, cb: loc.cb, bid: bid, decoded: decoded }];
+  }
+
+  function collectInternalBlocks(bytes, loc, fmt, depth) {
     var raw = bytes.subarray(loc.ib, loc.ib + loc.cb);
     if (raw[0] !== 0x01) return null;                  // btype must be 0x01
     var cEnt = u16(raw, 2);
@@ -300,6 +294,20 @@
       leaves = leaves.concat(sub);
     }
     return leaves;
+  }
+
+  // Collect the leaf data blocks backing a node's data BID. A plain data block
+  // yields one entry; an internal block (XBLOCK / XXBLOCK) is walked recursively
+  // so multi-block message stores are reassembled. Each entry carries the
+  // block's decoded payload (internal blocks themselves are never encoded).
+  function collectDataBlocks(bytes, bid, fmt, depth) {
+    if (depth > 8) return null;
+    var loc = findBlock(bytes, fmt.bbtRoot, bid, fmt);
+    if (!loc) return null;
+    if ((bid & 2n) !== 2n) {
+      return decodeDataBlock(bytes, loc, bid, fmt);
+    }
+    return collectInternalBlocks(bytes, loc, fmt, depth);
   }
 
   // Resolve a HID to its location within a (possibly multi-block) heap. Honours

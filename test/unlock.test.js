@@ -188,6 +188,29 @@ async function readEntry(buffer, path) {
     assert.deepStrictEqual(removed, [], 'reported removals on an unprotected file');
   });
 
+  await test('looksEncrypted correctly identifies OLE2 magic bytes', async () => {
+    const { looksEncrypted } = OfficeUnlocker;
+
+    // Missing or short byte arrays
+    assert.strictEqual(looksEncrypted(), false);
+    assert.strictEqual(looksEncrypted(null), false);
+    assert.strictEqual(looksEncrypted(Buffer.from([0xd0, 0xcf])), false);
+
+    // Valid OLE2 magic bytes
+    const ole2 = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    assert.strictEqual(looksEncrypted(ole2), true);
+
+    // Longer valid array
+    const ole2Long = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00, 0x00]);
+    assert.strictEqual(looksEncrypted(ole2Long), true);
+
+    // Invalid magic bytes
+    const invalid1 = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe0]); // Last byte differs
+    assert.strictEqual(looksEncrypted(invalid1), false);
+    const invalid2 = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert.strictEqual(looksEncrypted(invalid2), false);
+  });
+
   // --- PST ------------------------------------------------------------------
 
   await test('removes the password from a Unicode PST', () => {

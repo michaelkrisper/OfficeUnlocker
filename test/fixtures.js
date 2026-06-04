@@ -201,17 +201,7 @@ function buildAes256R6Pdf() {
 
 // --- PST -------------------------------------------------------------------
 
-const PERMUTE_DECODE = [
-  71, 241, 180, 230, 11, 106, 114, 72, 133, 78, 158, 235, 226, 248, 148, 83, 224, 187, 160, 2, 232, 90, 9, 171, 219, 227, 186, 198, 124, 195, 16, 221,
-  57, 5, 150, 48, 245, 55, 96, 130, 140, 201, 19, 74, 107, 29, 243, 251, 143, 38, 151, 202, 145, 23, 1, 196, 50, 45, 110, 49, 149, 255, 217, 35,
-  209, 0, 94, 121, 220, 68, 59, 26, 40, 197, 97, 87, 32, 144, 61, 131, 185, 67, 190, 103, 210, 70, 66, 118, 192, 109, 91, 126, 178, 15, 22, 41,
-  60, 169, 3, 84, 13, 218, 93, 223, 246, 183, 199, 98, 205, 141, 6, 211, 105, 92, 134, 214, 20, 247, 165, 102, 117, 172, 177, 233, 69, 33, 112, 12,
-  135, 159, 116, 164, 34, 76, 111, 191, 31, 86, 170, 46, 179, 120, 51, 80, 176, 163, 146, 188, 207, 25, 28, 167, 99, 203, 30, 77, 62, 75, 27, 155,
-  79, 231, 240, 238, 173, 58, 181, 89, 4, 234, 64, 85, 37, 81, 229, 122, 137, 56, 104, 82, 123, 252, 39, 174, 215, 189, 250, 7, 244, 204, 142, 95,
-  239, 53, 156, 132, 43, 21, 213, 119, 52, 73, 182, 18, 10, 127, 113, 136, 253, 157, 24, 65, 125, 147, 216, 88, 44, 206, 254, 36, 175, 222, 184, 54,
-  200, 161, 128, 166, 153, 152, 168, 47, 14, 129, 101, 115, 228, 194, 162, 138, 212, 225, 17, 208, 8, 139, 42, 242, 237, 154, 100, 63, 193, 108, 249, 236];
-const PERMUTE_ENCODE = new Uint8Array(256);
-for (let e = 0; e < 256; e++) PERMUTE_ENCODE[PERMUTE_DECODE[e]] = e;
+const PstUnlock = require('../pstunlock.js');
 
 function pstCrc(bytes, start, len) {
   const table = new Uint32Array(256);
@@ -220,7 +210,8 @@ function pstCrc(bytes, start, len) {
 }
 
 // Builds a minimal Unicode PST whose message store has PidTagPstPassword set.
-function buildUnicodePst(passwordCrc) {
+// crypt: 0 = none, 1 = permute (default), 2 = cyclic ("high").
+function buildUnicodePst(passwordCrc, crypt = 1) {
   const NBT = 0x400, BBT = 0x600, BLOCK = 0x800;
   const file = new Uint8Array(0x1000);
   const w16 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; };
@@ -228,7 +219,7 @@ function buildUnicodePst(passwordCrc) {
 
   file[0] = 0x21; file[1] = 0x42; file[2] = 0x44; file[3] = 0x4e; // !BDN
   w16(file, 0x0a, 23);            // Unicode
-  file[0x201] = 1;               // permute
+  file[0x201] = crypt;
   w32(file, 0xd8, 0x10); file[0xe0] = NBT & 0xff; file[0xe1] = (NBT >> 8) & 0xff; // NBT root
   w32(file, 0xe8, 0x20); file[0xf0] = BBT & 0xff; file[0xf1] = (BBT >> 8) & 0xff; // BBT root
 
@@ -237,16 +228,16 @@ function buildUnicodePst(passwordCrc) {
   w32(file, NBT + 0, 0x21); file[NBT + 8] = B;
   file[NBT + 488] = 1; file[NBT + 489] = 1; file[NBT + 490] = 32; file[NBT + 491] = 0;
 
-  // Heap-on-Node / PC block payload
-  const d = new Uint8Array(64);
-  d[2] = 0xec; d[3] = 0xbc; w32(d, 4, 0x20);          // HNHDR (hidUserRoot = idx1)
-  d[12] = 0xb5; d[13] = 2; d[14] = 6; d[15] = 0; w32(d, 16, 0x40); // BTHHEADER (hidRoot = idx2)
-  w16(d, 20, 0x67ff); w16(d, 22, 0x0003); w32(d, 24, passwordCrc);  // PidTagPstPassword
-  w16(d, 28, 0x3001); w16(d, 30, 0x001f); w32(d, 32, 0x40);         // display name (dummy)
-  w16(d, 36, 2); w16(d, 38, 0); w16(d, 40, 12); w16(d, 42, 20); w16(d, 44, 36); // HNPAGEMAP
-  w16(d, 0, 36);                                                    // ibHnpm
+  // Heap-on-Node / PC block payload (plaintext, then encoded in place).
   const cb = 46;
-  for (let i = 0; i < cb; i++) file[BLOCK + i] = PERMUTE_ENCODE[d[i]];
+  w16(file, BLOCK + 2, 0); file[BLOCK + 2] = 0xec; file[BLOCK + 3] = 0xbc; w32(file, BLOCK + 4, 0x20);
+  file[BLOCK + 12] = 0xb5; file[BLOCK + 13] = 2; file[BLOCK + 14] = 6; file[BLOCK + 15] = 0; w32(file, BLOCK + 16, 0x40);
+  w16(file, BLOCK + 20, 0x67ff); w16(file, BLOCK + 22, 0x0003); w32(file, BLOCK + 24, passwordCrc);
+  w16(file, BLOCK + 28, 0x3001); w16(file, BLOCK + 30, 0x001f); w32(file, BLOCK + 32, 0x40);
+  w16(file, BLOCK + 36, 2); w16(file, BLOCK + 38, 0); w16(file, BLOCK + 40, 12); w16(file, BLOCK + 42, 20); w16(file, BLOCK + 44, 36);
+  w16(file, BLOCK + 0, 36); // ibHnpm
+  PstUnlock._encodeBlock(file, BLOCK, cb, crypt, B);
+
   const aligned = Math.ceil((cb + 16) / 64) * 64;
   const tOff = BLOCK + aligned - 16;
   w16(file, tOff, cb); w32(file, tOff + 4, pstCrc(file, BLOCK, cb)); w32(file, tOff + 8, B);
@@ -259,9 +250,9 @@ function buildUnicodePst(passwordCrc) {
   return file;
 }
 
-function readPstPassword(bytes, BLOCK = 0x800, cb = 46) {
-  const dec = new Uint8Array(cb);
-  for (let i = 0; i < cb; i++) dec[i] = PERMUTE_DECODE[bytes[BLOCK + i]];
+function readPstPassword(bytes, crypt = 1, BLOCK = 0x800, cb = 46) {
+  const dec = bytes.slice(BLOCK, BLOCK + cb);
+  PstUnlock._decodeBlock(dec, 0, cb, crypt, 4);
   return (dec[24] | (dec[25] << 8) | (dec[26] << 16) | (dec[27] << 24)) >>> 0;
 }
 
@@ -436,9 +427,120 @@ function buildEncryptedOoxmlOle2() {
   ]);
 }
 
+// --- ECMA-376 encrypted Office (default password "VelvetSweatshop") ---------
+
+const PW = 'VelvetSweatshop';
+const utf16le = (s) => { const o = Buffer.alloc(s.length * 2); for (let i = 0; i < s.length; i++) o.writeUInt16LE(s.charCodeAt(i), i * 2); return o; };
+const le32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0, 0); return b; };
+const le64 = (n) => { const b = Buffer.alloc(8); b.writeUInt32LE(n & 0xffffffff, 0); b.writeUInt32LE(Math.floor(n / 0x100000000), 4); return b; };
+const ub = (u8) => Buffer.from(u8);
+
+async function buildProtectedInnerXlsx() {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types/>');
+  zip.file('xl/workbook.xml',
+    '<?xml version="1.0"?><workbook><workbookProtection workbookPassword="ABCD" lockStructure="1"/>' +
+    '<sheets><sheet name="S" sheetId="1"/></sheets></workbook>');
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+function pad16(buf) { const n = Math.ceil(buf.length / 16) * 16; const o = Buffer.alloc(n); buf.copy(o); return o; }
+function ecbEnc(key, data) {
+  const out = Buffer.alloc(data.length);
+  for (let off = 0; off + 16 <= data.length; off += 16) ub(bc.aesEcbEncryptBlock(new Uint8Array(key), new Uint8Array(data.subarray(off, off + 16)))).copy(out, off);
+  return out;
+}
+
+async function buildStandardEncryptedXlsx(pw = PW) {
+  const inner = await buildProtectedInnerXlsx();
+  const keyLen = 16; // AES-128
+  const salt = crypto.randomBytes(16);
+  let h = ub(bc.sha1(ub(Buffer.concat([salt, utf16le(pw)]))));
+  for (let i = 0; i < 50000; i++) h = ub(bc.sha1(ub(Buffer.concat([le32(i), h]))));
+  h = ub(bc.sha1(ub(Buffer.concat([h, le32(0)]))));
+  const b1 = Buffer.alloc(64), b2 = Buffer.alloc(64);
+  for (let j = 0; j < 64; j++) { b1[j] = 0x36 ^ (j < h.length ? h[j] : 0); b2[j] = 0x5c ^ (j < h.length ? h[j] : 0); }
+  const key = Buffer.concat([ub(bc.sha1(b1)), ub(bc.sha1(b2))]).subarray(0, keyLen);
+
+  const verifier = crypto.randomBytes(16);
+  const encVerifier = ecbEnc(key, verifier);
+  const encVerifierHash = ecbEnc(key, pad16(ub(bc.sha1(verifier))).subarray(0, 32));
+  const encPackage = Buffer.concat([le64(inner.length), ecbEnc(key, pad16(inner))]);
+
+  const header = Buffer.concat([
+    le32(0x24), le32(0),         // Flags, SizeExtra
+    le32(0x660e), le32(0x8004),  // AlgID=AES128, AlgIDHash=SHA1
+    le32(128), le32(0x18),       // KeySize, ProviderType
+    le32(0), le32(0),            // Reserved1, Reserved2
+    Buffer.from([0, 0])          // CSPName (empty, null-terminated)
+  ]);
+  const verifierBlock = Buffer.concat([le32(16), salt, encVerifier, le32(20), encVerifierHash]);
+  const info = Buffer.concat([
+    Buffer.from([3, 0, 2, 0]),   // versionMajor=3, versionMinor=2
+    le32(0x24),                  // EncryptionInfo.Flags
+    le32(header.length),
+    header, verifierBlock
+  ]);
+  return { bytes: buildCfb([{ name: 'EncryptionInfo', data: pad16Min(info) }, { name: 'EncryptedPackage', data: pad16Min(encPackage) }]) };
+}
+
+// CFB streams must be >= 4096 to use the FAT path in our reader; pad but keep
+// the logical size accurate is unnecessary here since the crypto reads fixed
+// offsets / a size prefix — but the reader returns `size` bytes, so set size to
+// the real content length by NOT padding the stream data (buildCfb stores size =
+// data.length). We instead ensure >= 4096 by padding the *data* and the crypto
+// only reads what it needs. Standard's encPackage uses the 8-byte size prefix.
+function pad16Min(buf) {
+  if (buf.length >= 4096) return new Uint8Array(buf);
+  const o = new Uint8Array(4096); o.set(buf); return o;
+}
+
+const AGILE_BVI = new Uint8Array([0xfe, 0xa7, 0xd2, 0x76, 0x3b, 0x4b, 0x9e, 0x79]);
+const AGILE_BVV = new Uint8Array([0xd7, 0xaa, 0x0f, 0x6d, 0x30, 0x61, 0x34, 0x4e]);
+const AGILE_BKV = new Uint8Array([0x14, 0x6e, 0x0b, 0xe7, 0xab, 0xac, 0xd0, 0xd6]);
+function fit(h, n) { if (h.length >= n) return Buffer.from(h.subarray(0, n)); const o = Buffer.alloc(n, 0x36); Buffer.from(h).copy(o); return o; }
+function cbcEnc(key, iv, data) { return ub(bc.aesCbcEncryptNoPad(new Uint8Array(key), new Uint8Array(iv), new Uint8Array(pad16(data)))); }
+
+async function buildAgileEncryptedXlsx(pw = PW) {
+  const inner = await buildProtectedInnerXlsx();
+  const sha512 = (b) => ub(bc.sha512(new Uint8Array(b)));
+  const kdSalt = crypto.randomBytes(16), ekSalt = crypto.randomBytes(16);
+  const spin = 100, keyBits = 256, kLen = 32;
+  const secretKey = crypto.randomBytes(32);
+
+  let hSpin = sha512(Buffer.concat([ekSalt, utf16le(pw)]));
+  for (let i = 0; i < spin; i++) hSpin = sha512(Buffer.concat([le32(i), hSpin]));
+  const keyFor = (bk) => fit(sha512(Buffer.concat([hSpin, ub(bk)])), kLen);
+
+  const verInput = crypto.randomBytes(16);
+  const encVerInput = cbcEnc(keyFor(AGILE_BVI), ekSalt, verInput);
+  const encVerValue = cbcEnc(keyFor(AGILE_BVV), ekSalt, sha512(verInput));
+  const encKeyValue = cbcEnc(keyFor(AGILE_BKV), ekSalt, secretKey);
+
+  // package
+  const segs = [];
+  for (let pos = 0, seg = 0; pos < inner.length; pos += 4096, seg++) {
+    const iv = fit(sha512(Buffer.concat([kdSalt, le32(seg)])), 16);
+    segs.push(cbcEnc(secretKey, iv, inner.subarray(pos, pos + 4096)));
+  }
+  const encPackage = Buffer.concat([le64(inner.length), ...segs]);
+
+  const b = (u) => Buffer.from(u).toString('base64');
+  const xml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<encryption>' +
+    `<keyData saltSize="16" blockSize="16" keyBits="${keyBits}" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="${b(kdSalt)}"/>` +
+    '<keyEncryptors><keyEncryptor uri="x">' +
+    `<p:encryptedKey spinCount="${spin}" saltSize="16" blockSize="16" keyBits="${keyBits}" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="${b(ekSalt)}" encryptedVerifierHashInput="${b(encVerInput)}" encryptedVerifierHashValue="${b(encVerValue)}" encryptedKeyValue="${b(encKeyValue)}"/>` +
+    '</keyEncryptor></keyEncryptors></encryption>';
+  const info = Buffer.concat([Buffer.from([4, 0, 4, 0]), le32(0x40), Buffer.from(xml, 'utf8')]);
+  return { bytes: buildCfb([{ name: 'EncryptionInfo', data: pad16Min(info) }, { name: 'EncryptedPackage', data: pad16Min(encPackage) }]) };
+}
+
 module.exports = {
   buildRc4Pdf, buildAesPdfWithObjStm, buildUserPasswordPdf, buildAes256R6Pdf,
   buildUnicodePst, readPstPassword, pstCrc,
   buildProtectedOds, buildEncryptedOdt,
-  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2
+  buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2,
+  buildStandardEncryptedXlsx, buildAgileEncryptedXlsx
 };

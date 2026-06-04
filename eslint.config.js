@@ -6,7 +6,7 @@ module.exports = [
   js.configs.recommended,
   {
     // Shared core logic – runs in both the browser and Node.js (UMD).
-    files: ['unlock.js', 'bincrypto.js', 'pdfunlock.js', 'pstunlock.js', 'ole2.js', 'olelock.js'],
+    files: ['unlock.js', 'bincrypto.js', 'pdfunlock.js', 'pstunlock.js', 'ole2.js', 'olelock.js', 'ooxmlcrypt.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'script',

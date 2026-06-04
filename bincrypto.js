@@ -324,6 +324,51 @@
     return out;
   }
 
+  // --- SHA-1 ---------------------------------------------------------------
+
+  function sha1(msg) {
+    var ml = msg.length;
+    var total = (Math.floor((ml + 8) / 64) + 1) * 64;
+    var buf = new Uint8Array(total);
+    buf.set(msg);
+    buf[ml] = 0x80;
+    var bits = ml * 8;
+    buf[total - 1] = bits & 0xff;
+    buf[total - 2] = (bits >>> 8) & 0xff;
+    buf[total - 3] = (bits >>> 16) & 0xff;
+    buf[total - 4] = (bits >>> 24) & 0xff;
+    var hi = Math.floor(ml / 0x20000000);
+    buf[total - 5] = hi & 0xff; buf[total - 6] = (hi >>> 8) & 0xff;
+    buf[total - 7] = (hi >>> 16) & 0xff; buf[total - 8] = (hi >>> 24) & 0xff;
+
+    var h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
+    function rol(x, n) { return (x << n) | (x >>> (32 - n)); }
+    var w = new Int32Array(80);
+    for (var off = 0; off < total; off += 64) {
+      for (var t = 0; t < 16; t++) {
+        w[t] = (buf[off + t * 4] << 24) | (buf[off + t * 4 + 1] << 16) | (buf[off + t * 4 + 2] << 8) | buf[off + t * 4 + 3];
+      }
+      for (t = 16; t < 80; t++) w[t] = rol(w[t - 3] ^ w[t - 8] ^ w[t - 14] ^ w[t - 16], 1);
+      var a = h0, b = h1, c = h2, d = h3, e = h4;
+      for (t = 0; t < 80; t++) {
+        var f, k;
+        if (t < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
+        else if (t < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
+        else if (t < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+        else { f = b ^ c ^ d; k = 0xca62c1d6; }
+        var tmp = (rol(a, 5) + f + e + k + w[t]) | 0;
+        e = d; d = c; c = rol(b, 30); b = a; a = tmp;
+      }
+      h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
+    }
+    var out = new Uint8Array(20);
+    [h0, h1, h2, h3, h4].forEach(function (h, idx) {
+      out[idx * 4] = (h >>> 24) & 0xff; out[idx * 4 + 1] = (h >>> 16) & 0xff;
+      out[idx * 4 + 2] = (h >>> 8) & 0xff; out[idx * 4 + 3] = h & 0xff;
+    });
+    return out;
+  }
+
   // --- SHA-256 -------------------------------------------------------------
 
   var SHA256_K = new Uint32Array([
@@ -456,6 +501,9 @@
     aesCbcDecrypt: aesCbcDecrypt,
     aesCbcEncryptNoPad: aesCbcEncryptNoPad,
     aesCbcDecryptNoPad: aesCbcDecryptNoPad,
+    aesEcbDecryptBlock: function (key, block) { return decryptBlock(block, keyExpansion(key)); },
+    aesEcbEncryptBlock: function (key, block) { return encryptBlock(block, keyExpansion(key)); },
+    sha1: sha1,
     sha256: sha256,
     sha384: sha384,
     sha512: sha512,

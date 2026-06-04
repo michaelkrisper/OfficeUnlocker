@@ -76,16 +76,37 @@
    * @param {string} tag e.g. "sheetProtection" or "w:documentProtection"
    */
   function stripElement(xml, tag) {
-    // Escape ":" is fine inside a regex character context; build patterns.
     var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Paired form: <tag ...> ... </tag>
-    var paired = new RegExp('<' + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + escaped + '>', 'g');
-    // Self-closing or empty form: <tag .../> or <tag ...>
-    var single = new RegExp('<' + escaped + '\\b[^>]*\\/?>', 'g');
+    var regex = new RegExp('<' + escaped + '\\b[^>]*>', 'g');
+    var out = '';
+    var lastIdx = 0;
 
-    var before = xml;
-    var out = xml.replace(paired, '').replace(single, '');
-    return { content: out, removed: out !== before };
+    var closeTag = '</' + tag + '>';
+    var lastCloseIdx = -1;
+    var noMoreCloseTags = false;
+
+    var match;
+    while ((match = regex.exec(xml)) !== null) {
+      out += xml.slice(lastIdx, match.index);
+
+      if (lastCloseIdx < regex.lastIndex && !noMoreCloseTags) {
+        lastCloseIdx = xml.indexOf(closeTag, regex.lastIndex);
+        if (lastCloseIdx === -1) {
+          noMoreCloseTags = true;
+        }
+      }
+
+      if (lastCloseIdx !== -1) {
+        lastIdx = lastCloseIdx + closeTag.length;
+        regex.lastIndex = lastIdx;
+      } else {
+        lastIdx = regex.lastIndex;
+      }
+    }
+    out += xml.slice(lastIdx);
+
+    var changed = out !== xml;
+    return { content: out, removed: changed };
   }
 
   /**

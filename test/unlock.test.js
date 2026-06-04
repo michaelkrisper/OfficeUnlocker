@@ -255,6 +255,14 @@ async function readEntry(buffer, path) {
 
   // --- Legacy OLE2 (.xls / .doc) + VBA -------------------------------------
 
+  await test('rejects non-OLE2 input to Ole2.parse', () => {
+    const junk = Buffer.from('this is not an ole2 file by any means');
+    assert.throws(
+      () => Ole2.parse(junk),
+      (err) => err.code === 'OLE_INVALID'
+    );
+  });
+
   await test('removes protection records from a legacy .xls', () => {
     const input = fixtures.buildProtectedXls();
     assert.ok(!PstUnlock.isPst(input), 'should not be detected as PST');

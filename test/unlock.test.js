@@ -309,6 +309,26 @@ async function readEntry(buffer, path) {
 
   // --- Legacy OLE2 (.xls / .doc) + VBA -------------------------------------
 
+  await test('isOle2 correctly identifies valid and invalid signatures', () => {
+    const SIG = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+    // valid
+    assert.ok(Ole2.isOle2(SIG), 'should accept valid array');
+    assert.ok(Ole2.isOle2(Buffer.from(SIG)), 'should accept valid buffer');
+    assert.ok(Ole2.isOle2(new Uint8Array(SIG)), 'should accept valid Uint8Array');
+    assert.ok(Ole2.isOle2([...SIG, 0x00, 0x00]), 'should accept longer array with valid signature');
+
+    // invalid edge cases
+    assert.ok(!Ole2.isOle2(null), 'should reject null');
+    assert.ok(!Ole2.isOle2(), 'should reject undefined');
+    assert.ok(!Ole2.isOle2([]), 'should reject empty array');
+    assert.ok(!Ole2.isOle2([0xd0, 0xcf, 0x11]), 'should reject short array');
+
+    // incorrect signature
+    assert.ok(!Ole2.isOle2([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0x00]), 'should reject incorrect signature');
+    assert.ok(!Ole2.isOle2([0x00, ...SIG.slice(1)]), 'should reject incorrect first byte');
+  });
+
   await test('removes protection records from a legacy .xls', () => {
     const input = fixtures.buildProtectedXls();
     assert.ok(!PstUnlock.isPst(input), 'should not be detected as PST');

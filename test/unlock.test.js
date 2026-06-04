@@ -285,6 +285,11 @@ async function readEntry(buffer, path) {
     assert.strictEqual(tbl[16 + 0x07], 0x09, 'other Dop bits were disturbed');
   });
 
+  await test('detects an unreadable CFB as encrypted', () => {
+    const input = Buffer.alloc(1024, 0x00);
+    assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
   await test('detects an encrypted legacy .xls (FILEPASS)', () => {
     const input = fixtures.buildEncryptedXls();
     assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');

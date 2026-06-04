@@ -102,6 +102,17 @@ async function readEntry(buffer, path) {
 (async function run() {
   console.log('\nOfficeUnlocker tests\n');
 
+  await test('startsWith checks magic bytes correctly', async () => {
+    const magic = [0x11, 0x22, 0x33];
+    assert.strictEqual(OfficeUnlocker.startsWith([0x11, 0x22, 0x33, 0x44], magic), true);
+    assert.strictEqual(OfficeUnlocker.startsWith([0x11, 0x22, 0x33], magic), true);
+    assert.strictEqual(OfficeUnlocker.startsWith([0x11, 0x22, 0x00], magic), false);
+    assert.strictEqual(OfficeUnlocker.startsWith([0x11, 0x22], magic), false);
+    assert.strictEqual(OfficeUnlocker.startsWith(null, magic), false);
+    assert.strictEqual(OfficeUnlocker.startsWith(undefined, magic), false);
+    assert.strictEqual(OfficeUnlocker.startsWith([], magic), false);
+  });
+
   await test('removes workbook + sheet protection from .xlsx', async () => {
     const input = await buildProtectedXlsx();
     const { blob, removed } = await OfficeUnlocker.unlock(input);

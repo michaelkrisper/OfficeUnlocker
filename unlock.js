@@ -277,6 +277,7 @@
     getExtension: getExtension,
     looksEncrypted: looksEncrypted,
     stripElement: stripElement,
-    SUPPORTED_EXTENSIONS: SUPPORTED_EXTENSIONS
+    SUPPORTED_EXTENSIONS: SUPPORTED_EXTENSIONS,
+    startsWith: startsWith
   };
 });

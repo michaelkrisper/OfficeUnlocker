@@ -1,19 +1,18 @@
 /*
  * OfficeUnlocker core logic.
  *
- * Removes protection from several file types, entirely in the browser:
+ * Removes editing restrictions that are stored as flags/properties, entirely in
+ * the browser — it does NOT break real encryption:
  *
- *   • Office Open XML (.xlsx, .docx, .pptx) – editing / sheet / workbook /
- *     document protection, stored as plain XML flags inside a ZIP container and
- *     stripped without the password.
- *   • PDF (.pdf) – usage restrictions (printing, copying, editing) from a
- *     permissions / "owner" password. The document is decrypted and re-saved.
+ *   • Office Open XML (.xlsx, .docx, .pptx) and OpenDocument (.ods, .odt, .odp)
+ *     – sheet / workbook / document protection, stored as plain XML flags.
+ *   • Legacy binary Office (.xls, .doc) – BIFF protection records / the Word
+ *     document-protection flag, plus VBA project passwords.
  *   • Outlook PST (.pst) – the message-store password, which is only a CRC and
  *     does not encrypt the mail, so it can be cleared outright.
  *
- * NOTE: This does NOT decrypt files that require an "open password" to view
- * them (full-file encryption: OLE2 Office documents or PDF user passwords).
- * Those cannot be opened without the password and are detected up front.
+ * NOTE: This does NOT decrypt files protected with an "open password"
+ * (full-file encryption). Those are detected and reported, never decrypted.
  *
  * Written in a UMD style so it runs both in the browser (as a global,
  * `window.OfficeUnlocker`) and in Node.js (via `require`) for automated tests.
@@ -21,19 +20,19 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     // Node.js – pull in dependencies from node_modules / sibling files.
-    module.exports = factory(require('jszip'), require('./pdfunlock.js'), require('./pstunlock.js'), require('./olelock.js'), require('./ooxmlcrypt.js'));
+    module.exports = factory(require('jszip'), require('./pstunlock.js'), require('./olelock.js'));
   } else {
     // Browser – dependencies are expected to be loaded globally beforehand.
-    root.OfficeUnlocker = factory(root.JSZip, root.PdfUnlock, root.PstUnlock, root.OleLock, root.OoxmlCrypt);
+    root.OfficeUnlocker = factory(root.JSZip, root.PstUnlock, root.OleLock);
   }
-})(typeof self !== 'undefined' ? self : this, function (JSZip, PdfUnlock, PstUnlock, OleLock, OoxmlCrypt) {
+})(typeof self !== 'undefined' ? self : this, function (JSZip, PstUnlock, OleLock) {
   'use strict';
 
   var OOXML_EXTENSIONS = ['xlsx', 'docx', 'pptx', 'xlsm', 'docm', 'pptm', 'xlsb'];
   var ODF_EXTENSIONS = ['odt', 'ods', 'odp', 'odg'];
   var LEGACY_EXTENSIONS = ['xls', 'doc', 'ppt'];
   var SUPPORTED_EXTENSIONS = OOXML_EXTENSIONS
-    .concat(ODF_EXTENSIONS, LEGACY_EXTENSIONS, ['pdf', 'pst']);
+    .concat(ODF_EXTENSIONS, LEGACY_EXTENSIONS, ['pst']);
 
   // OLE2 / Compound File Binary magic number. Files starting with these bytes
   // are encrypted Office documents (open-password protected) and are NOT ZIPs.
@@ -51,8 +50,7 @@
     return true;
   }
 
-  // Magic numbers used to route by content rather than trusting the extension.
-  var PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];             // "%PDF"
+  // Magic number used to route by content rather than trusting the extension.
   var PST_MAGIC = [0x21, 0x42, 0x44, 0x4e];             // "!BDN"
 
   function startsWith(bytes, magic) {
@@ -134,16 +132,10 @@
    * @param {ArrayBuffer|Uint8Array|Buffer|Blob} data Raw file bytes.
    * @returns {Promise<{blob: (Blob|Buffer), removed: string[], kind: string}>}
    *   `blob` is the unlocked file, `removed` lists which protections were
-   *   stripped, `kind` is one of 'ooxml' | 'pdf' | 'pst'.
+   *   stripped, `kind` is one of 'ooxml' | 'odf' | 'ole2' | 'pst'.
    */
   async function unlock(data) {
     var bytes = await toBytes(data);
-
-    if (startsWith(bytes, PDF_MAGIC)) {
-      if (!PdfUnlock) throw makeError('INVALID', 'PDF support is not available.');
-      var pdfRes = PdfUnlock.unlock(bytes);
-      return { blob: toOutput(pdfRes.bytes), removed: pdfRes.changed ? ['PDF restrictions'] : [], kind: 'pdf' };
-    }
 
     if (startsWith(bytes, PST_MAGIC)) {
       if (!PstUnlock) throw makeError('INVALID', 'PST support is not available.');
@@ -156,18 +148,9 @@
 
   function makeError(code, message) { var e = new Error(message); e.code = code; return e; }
 
-  // OLE2 container: encrypted OOXML (with a known password), or a legacy binary
-  // Office / VBA file.
-  async function unlockOle2(bytes) {
-    // Encrypted OOXML that opens with a default password (e.g. "VelvetSweatshop").
-    if (OoxmlCrypt) {
-      var decrypted = OoxmlCrypt.tryDecrypt(bytes); // null | Uint8Array | throws ENCRYPTED
-      if (decrypted) {
-        var inner = await unlockOoxml(decrypted, decrypted);
-        inner.removed = ['encryption (default password)'].concat(inner.removed);
-        return inner;
-      }
-    }
+  // OLE2 container: a legacy binary Office / VBA file. Encrypted documents
+  // (open password) are detected and reported, never decrypted.
+  function unlockOle2(bytes) {
     if (!OleLock) throw makeError('ENCRYPTED', 'This file is encrypted with an "open password" and cannot be unlocked without it.');
     var res = OleLock.unlock(bytes);
     return { blob: toOutput(res.bytes), removed: res.removed, kind: res.kind };

@@ -1,15 +1,15 @@
 # 🔓 OfficeUnlocker
 
-A single‑page web app that removes protection from several file types directly
-in your browser:
+A single‑page web app that removes **editing restrictions** from common
+document types, directly in your browser. It only clears protection that is
+stored as a *flag or property* — **it does not break, crack or bypass real
+encryption.**
 
 - **Microsoft Office** — modern (`.xlsx`/`.docx`/`.pptx`, incl. macro‑enabled
-  `.xlsm`/`.docm`/`.pptm`) and legacy (`.xls`/`.doc`/`.ppt`): editing, sheet,
-  workbook and document protection.
+  `.xlsm`/`.docm`/`.pptm`) and legacy (`.xls`/`.doc`): sheet, workbook and
+  document protection ("Restrict Editing").
 - **OpenDocument** (`.ods`/`.odt`/`.odp`, LibreOffice) — sheet and section
   protection.
-- **PDF** (`.pdf`) — usage restrictions (printing, copying, editing) from a
-  permissions / "owner" password.
 - **VBA macro projects** — the "lock project for viewing" password inside
   macro‑enabled Office files.
 - **Outlook** (`.pst`) — the message‑store password.
@@ -26,8 +26,8 @@ in your browser:
 The file is routed by its content (magic bytes), not its extension, and handled
 by the matching unlocker — all in memory, nothing uploaded:
 
-- **Office (OOXML)** — these files are ZIP archives of XML, and most protection
-  is just a plain XML flag. The archive is unzipped with
+- **Office (OOXML)** — these files are ZIP archives of XML, and the protection is
+  just a plain XML flag. The archive is unzipped with
   [JSZip](https://stuk.github.io/jszip/), the relevant elements are stripped
   (`workbookProtection` / `sheetProtection` / `fileSharing` for Excel,
   `w:documentProtection` / `w:writeProtection` for Word, `p:modifyVerifier` for
@@ -35,16 +35,11 @@ by the matching unlocker — all in memory, nothing uploaded:
 - **OpenDocument** — also a ZIP, but protection is stored as XML *attributes*
   (`table:protected`, `text:protected`) guarded by a hashed `protection-key`.
   The flags are flipped off and the key hashes removed.
-- **PDF** — a permissions‑password PDF is genuinely encrypted, but when there is
-  no *open* password the encryption key is derivable. The document is decrypted
-  (Standard Security Handler: RC4, AES‑128 or AES‑256/R6) and re‑saved without
-  `/Encrypt`, so the restrictions are gone.
-- **Legacy binary Office** (`.xls`/`.doc`/`.ppt`) — these are OLE2 compound
-  files. For Excel the BIFF protection records (`PROTECT`, `PASSWORD`,
-  `WINDOWPROTECT`, `OBJECTPROTECT`, …) are zeroed in place. For Word, "Restrict
-  Editing" is removed by clearing the `Dop.fProtEnabled` switch (located via the
-  FIB's `fcDop`). Encrypted files (`FILEPASS` / Word `fEncrypted`) are detected
-  and reported.
+- **Legacy binary Office** (`.xls`/`.doc`) — these are OLE2 compound files. For
+  Excel the BIFF protection records (`PROTECT`, `PASSWORD`, `WINDOWPROTECT`,
+  `OBJECTPROTECT`, …) are zeroed in place. For Word, "Restrict Editing" is
+  removed by clearing the `Dop.fProtEnabled` switch (located via the FIB's
+  `fcDop`).
 - **VBA projects** — the project password lives in the `PROJECT` stream's `DPB`
   key; renaming it (a same‑length edit) makes the VBA editor treat the project as
   unprotected. Works for macro‑enabled OOXML (`vbaProject.bin`) and legacy files.
@@ -52,10 +47,6 @@ by the matching unlocker — all in memory, nothing uploaded:
   CRC of it as `PidTagPstPassword`. That property is located in the message
   store and set to `0`, which removes the password outright. Works for the
   none, compressible (permute) and high (cyclic) data encodings.
-- **Encrypted Office with a default password** — Office files that are encrypted
-  (ECMA‑376 Standard or Agile) with Excel's well‑known default password
-  *VelvetSweatshop* — or the empty password — are decrypted automatically and
-  then have their protection stripped like any other file.
 
 The result is downloaded as `unlocked_<yourfile>` — your original is never
 touched.
@@ -69,37 +60,25 @@ touched.
 | Legacy Excel protection records (`.xls`, BIFF) | ✅ |
 | Legacy Word "Restrict Editing" (`.doc`, `Dop.fProtEnabled`) | ✅ |
 | VBA macro project password (OOXML &amp; legacy) | ✅ |
-| PDF usage restrictions — RC4, AES‑128, AES‑256 (R6), empty user password | ✅ |
 | Outlook PST password — ANSI &amp; Unicode, none/compressible/cyclic encoding | ✅ |
-| Encrypted Office opened by a default password (*VelvetSweatshop* / empty) | ✅ |
-| Legacy PowerPoint content protection (beyond VBA &amp; encryption check) | ❌ |
-| **Open password with a real, unknown password (full‑file encryption / PDF view password)** | ❌ |
+| **Open / view password (real, full‑file encryption)** | ❌ — detected, never decrypted |
 
-Files protected with an **open password** (AES‑encrypted OLE2 Office documents,
-or PDFs that need a password just to view) cannot be opened without the
-password. OfficeUnlocker detects these automatically and tells you so instead of
-producing a corrupt file.
+Files protected with an **open password** (AES‑encrypted Office documents, or
+anything that needs a password just to open/view) are real encryption.
+OfficeUnlocker **does not attempt to break them** — it detects them and tells you
+so, instead of producing a corrupt file.
 
-> ℹ️ The PDF, PST, legacy‑Office, VBA and encrypted‑Office paths are newer than
-> the OOXML path. The crypto primitives (MD5, RC4, AES‑128/256, SHA‑1, SHA‑2) are
-> verified against published test vectors and the logic against synthetic
-> fixtures, but since your original file is never modified, keep it until you've
-> confirmed the unlocked copy opens correctly.
+> ⚠️ Only use this tool on files you own or are authorised to modify.
 
-> ⚠️ Only use this tool on files you are authorised to modify.
+## Disclaimer
 
-## Usage
-
-Just open the [live site](https://michaelkrisper.github.io/OfficeUnlocker/),
-or run it locally — no build step required:
-
-```bash
-git clone https://github.com/michaelkrisper/OfficeUnlocker.git
-cd OfficeUnlocker
-# Serve the folder with any static server, e.g.:
-npx serve .
-# then open the printed URL in your browser
-```
+OfficeUnlocker removes editing restrictions that are stored as flags or
+properties; it does **not** break, crack or circumvent real encryption, and it
+does not recover or reveal passwords. It is provided **"as is", under the MIT
+license, without warranty of any kind**, for the legitimate recovery of
+documents you own or are authorised to modify. You are solely responsible for
+ensuring your use complies with applicable law and any agreements covering the
+files. The author accepts no liability for misuse.
 
 ## Development
 
@@ -118,31 +97,27 @@ npm run check   # lint + test (used in CI)
 ```
 index.html                  # The web app (UI + glue code)
 unlock.js                   # Format dispatcher + Office/OOXML & ODF logic (UMD)
-pdfunlock.js                # PDF Standard Security Handler decryptor (UMD)
-pstunlock.js                # Outlook PST password remover (UMD)
 ole2.js                     # OLE2 / Compound File reader + in-place patcher (UMD)
 olelock.js                  # Legacy .xls/.doc + VBA project unlocker (UMD)
-ooxmlcrypt.js               # ECMA-376 (Agile/Standard) default-password decryptor (UMD)
-bincrypto.js                # MD5 / RC4 / AES / SHA-1 / SHA-2 primitives (UMD)
+pstunlock.js                # Outlook PST password remover (UMD)
 test/unlock.test.js         # Automated tests (build → unlock → verify)
 test/fixtures.js            # Synthetic protected-file builders for the tests
 eslint.config.js            # ESLint flat config
 .github/workflows/ci.yml    # Lint + test on every push / PR
-.github/workflows/deploy.yml# Deploy to GitHub Pages on push to main
+.github/workflows/static.yml# Deploy to GitHub Pages on push to main
 ```
 
 ## Deployment
 
-Pushing to `main` triggers the **Deploy to GitHub Pages** workflow, which lints,
-tests and then publishes the static files to GitHub Pages. To enable it once:
+Pushing to `main` triggers the **Deploy to GitHub Pages** workflow, which
+publishes the static files to GitHub Pages. To enable it once:
 **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## Tech stack
 
-Plain HTML, CSS and JavaScript — no framework, no bundler. Runtime dependencies,
-loaded from a CDN with Subresource Integrity:
-[JSZip](https://stuk.github.io/jszip/) `3.10.1` (Office ZIP handling) and
-[pako](https://github.com/nodeca/pako) `2.1.0` (inflate for PDF object streams).
+Plain HTML, CSS and JavaScript — no framework, no bundler. The only runtime
+dependency is [JSZip](https://stuk.github.io/jszip/) `3.10.1`, loaded from a CDN
+with Subresource Integrity.
 
 ## License
 

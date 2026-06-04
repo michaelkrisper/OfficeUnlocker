@@ -230,6 +230,17 @@ async function readEntry(buffer, path) {
     assert.ok(!res.changed && !res.hadPassword, 'reported a change on a password-less PST');
   });
 
+  await test('rejects a PST with unreadable message store blocks', () => {
+    const pst = fixtures.buildUnicodePst(0x12345678);
+    // Corrupt the BBT tree so `collectDataBlocks` cannot find the block
+    // The BBT root starts at 0x600.
+    pst.fill(0, 0x600, 0x600 + 488);
+    assert.throws(
+      () => PstUnlock.unlock(pst),
+      (err) => err.code === 'PST_INVALID' && err.message === 'Could not read the message store data block(s).'
+    );
+  });
+
   await test('PST removal is idempotent', () => {
     const pst = fixtures.buildUnicodePst(0xdeadbeef);
     const once = PstUnlock.unlock(pst);

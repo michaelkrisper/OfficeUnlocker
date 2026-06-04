@@ -75,16 +75,22 @@
    * @param {string} xml
    * @param {string} tag e.g. "sheetProtection" or "w:documentProtection"
    */
+  var elementRegexCache = {};
   function stripElement(xml, tag) {
-    // Escape ":" is fine inside a regex character context; build patterns.
-    var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Paired form: <tag ...> ... </tag>
-    var paired = new RegExp('<' + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + escaped + '>', 'g');
-    // Self-closing or empty form: <tag .../> or <tag ...>
-    var single = new RegExp('<' + escaped + '\\b[^>]*\\/?>', 'g');
+    var patterns = elementRegexCache[tag];
+    if (!patterns) {
+      // Escape ":" is fine inside a regex character context; build patterns.
+      var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      patterns = elementRegexCache[tag] = {
+        // Paired form: <tag ...> ... </tag>
+        paired: new RegExp('<' + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + escaped + '>', 'g'),
+        // Self-closing or empty form: <tag .../> or <tag ...>
+        single: new RegExp('<' + escaped + '\\b[^>]*\\/?>', 'g')
+      };
+    }
 
     var before = xml;
-    var out = xml.replace(paired, '').replace(single, '');
+    var out = xml.replace(patterns.paired, '').replace(patterns.single, '');
     return { content: out, removed: out !== before };
   }
 

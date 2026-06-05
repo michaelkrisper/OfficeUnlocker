@@ -214,11 +214,21 @@ async function readEntry(buffer, path) {
     // Missing or short byte arrays
     assert.strictEqual(looksEncrypted(), false);
     assert.strictEqual(looksEncrypted(null), false);
+    assert.strictEqual(looksEncrypted(undefined), false);
+    assert.strictEqual(looksEncrypted([]), false);
     assert.strictEqual(looksEncrypted(Buffer.from([0xd0, 0xcf])), false);
+    assert.strictEqual(looksEncrypted('not an array'), false);
+    assert.strictEqual(looksEncrypted({ length: 10 }), false); // No integer indices
 
     // Valid OLE2 magic bytes
     const ole2 = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
     assert.strictEqual(looksEncrypted(ole2), true);
+
+    const ole2PlainArray = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+    assert.strictEqual(looksEncrypted(ole2PlainArray), true);
+
+    const ole2Uint8Array = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    assert.strictEqual(looksEncrypted(ole2Uint8Array), true);
 
     // Longer valid array
     const ole2Long = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00, 0x00]);
@@ -229,6 +239,8 @@ async function readEntry(buffer, path) {
     assert.strictEqual(looksEncrypted(invalid1), false);
     const invalid2 = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     assert.strictEqual(looksEncrypted(invalid2), false);
+    const invalidFirstByte = Buffer.from([0x00, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    assert.strictEqual(looksEncrypted(invalidFirstByte), false);
   });
 
   // --- PST ------------------------------------------------------------------

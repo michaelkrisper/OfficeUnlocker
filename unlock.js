@@ -75,23 +75,44 @@
    * @param {string} xml
    * @param {string} tag e.g. "sheetProtection" or "w:documentProtection"
    */
-  var elementRegexCache = {};
   function stripElement(xml, tag) {
-    var patterns = elementRegexCache[tag];
-    if (!patterns) {
-      // Escape ":" is fine inside a regex character context; build patterns.
-      var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      patterns = elementRegexCache[tag] = {
-        // Paired form: <tag ...> ... </tag>
-        paired: new RegExp('<' + escaped + '\\b[^>]*>[\\s\\S]*?<\\/' + escaped + '>', 'g'),
-        // Self-closing or empty form: <tag .../> or <tag ...>
-        single: new RegExp('<' + escaped + '\\b[^>]*\\/?>', 'g')
-      };
-    }
+    var escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var regex = new RegExp('<' + escaped + '\\b[^>]*>', 'g');
+    var out = '';
+    var lastIdx = 0;
 
-    var before = xml;
-    var out = xml.replace(patterns.paired, '').replace(patterns.single, '');
-    return { content: out, removed: out !== before };
+    var closeTag = '</' + tag + '>';
+    var lastCloseIdx = -1;
+    var noMoreCloseTags = false;
+
+    var match;
+    while ((match = regex.exec(xml)) !== null) {
+      out += xml.slice(lastIdx, match.index);
+
+      // Self-closing tag (e.g. <tag/>): just skip it, no close tag needed.
+      if (match[0].charAt(match[0].length - 2) === '/') {
+        lastIdx = regex.lastIndex;
+        continue;
+      }
+
+      if (lastCloseIdx < regex.lastIndex && !noMoreCloseTags) {
+        lastCloseIdx = xml.indexOf(closeTag, regex.lastIndex);
+        if (lastCloseIdx === -1) {
+          noMoreCloseTags = true;
+        }
+      }
+
+      if (lastCloseIdx !== -1) {
+        lastIdx = lastCloseIdx + closeTag.length;
+        regex.lastIndex = lastIdx;
+      } else {
+        lastIdx = regex.lastIndex;
+      }
+    }
+    out += xml.slice(lastIdx);
+
+    var changed = out !== xml;
+    return { content: out, removed: changed };
   }
 
   /**
@@ -218,8 +239,23 @@
     return { blob: blob, removed: removed, kind: isOdf ? 'odf' : 'ooxml' };
   }
 
+  async function processXmlFile(entry, tags) {
+    var content = await entry.async('string');
+    var changed = false;
+    var removedTags = [];
+    for (var t = 0; t < tags.length; t++) {
+      var result = stripElement(content, tags[t]);
+      if (result.removed) {
+        content = result.content;
+        changed = true;
+        if (removedTags.indexOf(tags[t]) === -1) removedTags.push(tags[t]);
+      }
+    }
+    return { changed: changed, content: content, removedTags: removedTags };
+  }
+
   async function stripOoxml(zip) {
-    var removed = new Set();
+    var removed = [];
     var paths = Object.keys(zip.files);
     for (var i = 0; i < paths.length; i++) {
       var path = paths[i];
@@ -229,19 +265,17 @@
       var tags = tagsForPath(path);
       if (!tags) continue;
 
-      var content = await entry.async('string');
-      var changed = false;
-      for (var t = 0; t < tags.length; t++) {
-        var result = stripElement(content, tags[t]);
-        if (result.removed) {
-          content = result.content;
-          changed = true;
-          removed.add(tags[t]);
+      var result = await processXmlFile(entry, tags);
+      if (result.changed) {
+        zip.file(path, result.content);
+        for (var r = 0; r < result.removedTags.length; r++) {
+          if (removed.indexOf(result.removedTags[r]) === -1) {
+            removed.push(result.removedTags[r]);
+          }
         }
       }
-      if (changed) zip.file(path, content);
     }
-    return Array.from(removed);
+    return removed;
   }
 
   // OpenDocument stores protection as XML *attributes* (e.g. table:protected),
@@ -258,8 +292,8 @@
       }
     }
 
-    var removed = new Set();
-    var targets = ['content.xml', 'styles.xml'];
+    var removed = [];
+    var targets = ['content.xml', 'styles.xml', 'settings.xml'];
     for (var i = 0; i < targets.length; i++) {
       var path = targets[i];
       if (!zip.files[path]) continue;
@@ -269,12 +303,14 @@
       xml = xml.replace(/((?:\w+:)?(?:protected|protection))="true"/g, '$1="false"');
       // Remove the stored protection-key hashes entirely.
       xml = xml.replace(/\s+(?:\w+:)?protection-key(?:-digest-algorithm(?:-gpg)?)?="[^"]*"/g, '');
+      // Remove config items for ProtectStructure and ProtectWindows in OpenDocument files
+      xml = xml.replace(/<config:config-item config:name="Protect(?:Structure|Windows)" config:type="boolean">true<\/config:config-item>/g, function(m) { return m.replace('>true<', '>false<'); });
       if (xml !== before) {
         zip.file(path, xml);
-        removed.add('document protection');
+        if (removed.indexOf('document protection') === -1) removed.push('document protection');
       }
     }
-    return Array.from(removed);
+    return removed;
   }
 
   return {

@@ -102,6 +102,57 @@ async function readEntry(buffer, path) {
 (async function run() {
   console.log('\nOfficeUnlocker tests\n');
 
+  // --- XML stripElement -----------------------------------------------------
+
+  await test('stripElement removes self-closing tags', async () => {
+    const input = '<root><sheetProtection attr="val"/><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement removes paired tags with content', async () => {
+    const input = '<root><sheetProtection>some data here</sheetProtection><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement removes multiline paired tags', async () => {
+    const input = '<root><w:documentProtection\n  attr="val">\n  data\n</w:documentProtection><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'w:documentProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement ensures tags with common prefix but different names are not removed', async () => {
+    const input = '<root><sheetProtection/><sheetProtectionX/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><sheetProtectionX/></root>');
+  });
+
+  await test('stripElement handles regex escaping in tag names', async () => {
+    const input = '<root><tag:with.regex*chars/><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'tag:with.regex*chars');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement handles multiple occurrences of the same tag', async () => {
+    const input = '<root><tag/><data/><tag></tag></root>';
+    const res = OfficeUnlocker.stripElement(input, 'tag');
+    assert.strictEqual(res.removed, true);
+    assert.strictEqual(res.content, '<root><data/></root>');
+  });
+
+  await test('stripElement correctly reports no removal when tag is absent', async () => {
+    const input = '<root><data/></root>';
+    const res = OfficeUnlocker.stripElement(input, 'sheetProtection');
+    assert.strictEqual(res.removed, false);
+    assert.strictEqual(res.content, input);
+  });
+
   await test('startsWith checks magic bytes correctly', async () => {
     const magic = [0x11, 0x22, 0x33];
     assert.strictEqual(OfficeUnlocker.startsWith([0x11, 0x22, 0x33, 0x44], magic), true);
@@ -325,12 +376,34 @@ async function readEntry(buffer, path) {
     assert.ok(removed.includes('document protection'));
   });
 
+  await test('removes structure and window protection from an .ods (OpenDocument)', async () => {
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.spreadsheet');
+    zip.file('META-INF/manifest.xml', '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:x"/>');
+    zip.file('settings.xml', '<config:config-item config:name="ProtectStructure" config:type="boolean">true</config:config-item><config:config-item config:name="ProtectWindows" config:type="boolean">true</config:config-item>');
+    const input = await zip.generateAsync({ type: 'nodebuffer' });
+    const { blob, removed, kind } = await OfficeUnlocker.unlock(input);
+    assert.strictEqual(kind, 'odf');
+    const settings = await readEntry(blob, 'settings.xml');
+    assert.ok(/ProtectStructure[^>]*>false</.test(settings), 'ProtectStructure not cleared');
+    assert.ok(/ProtectWindows[^>]*>false</.test(settings), 'ProtectWindows not cleared');
+    assert.ok(removed.includes('document protection'));
+  });
+
   await test('detects an encrypted OpenDocument file', async () => {
     const input = await fixtures.buildEncryptedOdt();
     await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
   });
 
   // --- Legacy OLE2 (.xls / .doc) + VBA -------------------------------------
+
+  await test('rejects non-OLE2 input to Ole2.parse', () => {
+    const junk = Buffer.from('this is not an ole2 file by any means');
+    assert.throws(
+      () => Ole2.parse(junk),
+      (err) => err.code === 'OLE_INVALID'
+    );
+  });
 
   await test('isOle2 correctly identifies valid and invalid signatures', () => {
     const SIG = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];

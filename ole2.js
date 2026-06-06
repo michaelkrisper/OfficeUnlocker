@@ -98,11 +98,11 @@
         var nameLen = u16(bytes, p + 0x40);
         var type = bytes[p + 0x42];
         if (type === 0) continue; // unused
-        var chars = [];
+        var nameChars = [];
         for (var c = 0; c < nameLen - 2 && c < 64; c += 2) {
-          chars.push(u16(bytes, p + c));
+          nameChars.push(u16(bytes, p + c));
         }
-        var name = String.fromCharCode.apply(null, chars);
+        var name = String.fromCharCode.apply(null, nameChars);
         entries.push({
           name: name,
           type: type,                 // 1 storage, 2 stream, 5 root

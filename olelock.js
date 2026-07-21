@@ -84,6 +84,23 @@
     }
   }
 
+  // Legacy PowerPoint (.ppt) has no flag-based "restrict editing" — binary PPT
+  // is either plain or fully encrypted. Encryption is signalled by the
+  // CurrentUserAtom.headerToken (0xF3D1C4DF) in the "Current User" stream, at
+  // byte offset 12 (after the 8-byte record header and the 4-byte size field).
+  // Detect it so an encrypted deck is reported, not silently passed through.
+  // NOTE: PowerPoint 2002 wrote the plain token for encrypted files too, so this
+  // check can miss that one legacy writer (MS-PPT Appendix A, product behavior).
+  var PPT_ENCRYPTED_TOKEN = 0xf3d1c4df;
+
+  function checkPptEncrypted(cfb) {
+    var cu = cfb.find('Current User');
+    if (!cu) return;
+    var data = cfb.readStream(cu);
+    if (!data || data.length < 16) return;
+    if (u32(data, 12) === PPT_ENCRYPTED_TOKEN) throw err('ENCRYPTED', ENCRYPTED_MSG);
+  }
+
   function parseWordFib(cfb) {
     var wd = cfb.find('WordDocument');
     if (!wd) return null;
@@ -142,6 +159,8 @@
     if (cfb.find('EncryptedPackage') || cfb.find('EncryptionInfo')) {
       throw err('ENCRYPTED', ENCRYPTED_MSG);
     }
+
+    checkPptEncrypted(cfb);
 
     var removed = [];
     unlockWordIn(cfb, removed);

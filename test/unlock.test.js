@@ -205,6 +205,27 @@ async function readEntry(buffer, path) {
     assert.ok(removed.includes('p:modifyVerifier'));
   });
 
+  await test('removes workbook + sheet protection from an .xlsb (binary parts)', async () => {
+    const input = await fixtures.buildProtectedXlsb();
+    const { blob, removed, kind } = await OfficeUnlocker.unlock(input);
+    assert.strictEqual(kind, 'ooxml');
+
+    const zip = await JSZip.loadAsync(blob);
+    const wbBin = await zip.file('xl/workbook.bin').async('uint8array');
+    const shBin = await zip.file('xl/worksheets/sheet1.bin').async('uint8array');
+
+    assert.ok(!fixtures.xlsbHasRecord(wbBin, 534), 'BrtBookProtection still present');
+    assert.ok(!fixtures.xlsbHasRecord(wbBin, 677), 'BrtBookProtectionIso still present');
+    assert.ok(!fixtures.xlsbHasRecord(wbBin, 548), 'BrtFileSharing still present');
+    assert.ok(!fixtures.xlsbHasRecord(wbBin, 676), 'BrtFileSharingIso still present');
+    assert.ok(!fixtures.xlsbHasRecord(shBin, 535), 'BrtSheetProtection still present');
+    assert.ok(!fixtures.xlsbHasRecord(shBin, 678), 'BrtSheetProtectionIso still present');
+    assert.ok(fixtures.xlsbHasRecord(shBin, 147), 'a non-protection record (WsProp) was lost');
+    assert.ok(removed.includes('workbookProtection'), 'workbookProtection not reported');
+    assert.ok(removed.includes('sheetProtection'), 'sheetProtection not reported');
+    assert.ok(removed.includes('fileSharing'), 'fileSharing not reported');
+  });
+
   await test('output remains a valid, openable ZIP archive', async () => {
     const input = await buildProtectedXlsx();
     const { blob } = await OfficeUnlocker.unlock(input);
@@ -475,6 +496,17 @@ async function readEntry(buffer, path) {
     const input = fixtures.buildEncryptedPackageOle2();
     assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
     await assert.rejects(() => OfficeUnlocker.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
+  await test('detects an encrypted legacy .ppt (CurrentUserAtom headerToken)', () => {
+    const input = fixtures.buildEncryptedPpt();
+    assert.throws(() => OleLock.unlock(input), (err) => err.code === 'ENCRYPTED');
+  });
+
+  await test('leaves a non-encrypted legacy .ppt with no removable protection', () => {
+    const input = fixtures.buildUnprotectedPpt();
+    const out = OleLock.unlock(input);
+    assert.deepStrictEqual(out.removed, [], 'binary .ppt has no flag-based protection to remove');
   });
 
   await test('removes a VBA project password (DPB -> DPx)', () => {

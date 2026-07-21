@@ -39,6 +39,75 @@ async function buildEncryptedOdt() {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
+// --- OOXML binary (.xlsb) --------------------------------------------------
+
+// BIFF12 record numbers (MS-XLSB 2.3.2 "By Number").
+const BRT = {
+  BeginBook: 131, EndBook: 132, BookProtection: 534, FileSharing: 548,
+  BeginSheet: 129, EndSheet: 130, WsProp: 147, SheetProtection: 535,
+  // ISO/agile (SHA-512 + AES) variants, used when protection uses the newer algorithm.
+  FileSharingIso: 676, BookProtectionIso: 677, SheetProtectionIso: 678
+};
+
+// Encode a variable-length integer (7 bits/byte, high bit = continuation).
+function xlsbVarint(n) {
+  const out = [];
+  do { let b = n & 0x7f; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n);
+  return out;
+}
+
+// Encode one BIFF12 record: variable-length type + variable-length size + data.
+// The record type is two bytes iff it is >= 128 (high bit of the low byte set).
+function xlsbRecord(id, data) {
+  data = data || new Uint8Array(0);
+  const type = id < 0x80 ? [id] : [(id & 0x7f) | 0x80, (id >> 7) & 0x7f];
+  return concatBytes([new Uint8Array(type), new Uint8Array(xlsbVarint(data.length)), data]);
+}
+
+// Walk a BIFF12 record stream; true if a record with the given id is present.
+function xlsbHasRecord(bytes, id) {
+  let pos = 0;
+  while (pos < bytes.length) {
+    let rid, idLen;
+    if (bytes[pos] & 0x80) { rid = (bytes[pos] & 0x7f) | ((bytes[pos + 1] & 0x7f) << 7); idLen = 2; }
+    else { rid = bytes[pos]; idLen = 1; }
+    let sp = pos + idLen, size = 0, shift = 0, sl = 0;
+    for (let i = 0; i < 4; i++) { const b = bytes[sp + i]; sl++; size += (b & 0x7f) * Math.pow(2, shift); shift += 7; if (!(b & 0x80)) break; }
+    if (rid === id) return true;
+    pos = sp + sl + size;
+  }
+  return false;
+}
+
+async function buildProtectedXlsb() {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+    '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+
+  const bookProt = new Uint8Array([0xcd, 0xab, 0x00, 0x00, 0x07, 0x00]); // protpwdBook != 0, protpwdRev, wFlags
+  const fileShare = new Uint8Array([0x01, 0x00, 0x34, 0x12, 0x00, 0x00]); // fReadOnlyRec, wResPass != 0, empty stUserName
+  zip.file('xl/workbook.bin', concatBytes([
+    xlsbRecord(BRT.BeginBook),
+    xlsbRecord(BRT.BookProtection, bookProt),
+    xlsbRecord(BRT.BookProtectionIso, new Uint8Array(24)), // agile workbook protection
+    xlsbRecord(BRT.FileSharing, fileShare),
+    xlsbRecord(BRT.FileSharingIso, new Uint8Array(24)),    // agile write-reservation
+    xlsbRecord(BRT.EndBook)
+  ]));
+
+  const sheetProt = new Uint8Array(2 + 4 * 12); sheetProt[0] = 0x3f; sheetProt[1] = 0xcc; // protpwd != 0
+  const keepme = new Uint8Array([0x6b, 0x65, 0x65, 0x70]); // "keep" — a non-protection record that must survive
+  zip.file('xl/worksheets/sheet1.bin', concatBytes([
+    xlsbRecord(BRT.BeginSheet),
+    xlsbRecord(BRT.WsProp, keepme),
+    xlsbRecord(BRT.SheetProtection, sheetProt),
+    xlsbRecord(BRT.SheetProtectionIso, new Uint8Array(24)), // agile sheet protection
+    xlsbRecord(BRT.EndSheet)
+  ]));
+
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
 // --- OLE2 / CFB ------------------------------------------------------------
 
 const SECTOR = 512;
@@ -164,6 +233,23 @@ function buildEncryptedPackageOle2() {
   ]);
 }
 
+// Legacy PowerPoint (.ppt). Binary PPT has no flag-based "restrict editing";
+// encryption is signalled by the CurrentUserAtom.headerToken (MS-PPT 2.3.2).
+function buildPpt(headerToken) {
+  const w32 = (b, o, v) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff; };
+  const cu = new Uint8Array(24);
+  cu[2] = 0xf6; cu[3] = 0x0f;      // rh.recType = RT_CurrentUserAtom (0x0FF6)
+  w32(cu, 4, 0x14);                // rh.recLen
+  w32(cu, 8, 0x14);                // size
+  w32(cu, 12, headerToken >>> 0);  // headerToken (encryption marker)
+  return buildCfb([
+    { name: 'Current User', data: padTo(cu, 4096) },
+    { name: 'PowerPoint Document', data: padTo(new Uint8Array([0x0f, 0x00]), 4096) }
+  ]);
+}
+function buildEncryptedPpt() { return buildPpt(0xf3d1c4df); }
+function buildUnprotectedPpt() { return buildPpt(0xe391c05f); }
+
 // --- PST -------------------------------------------------------------------
 
 function pstCrc(bytes, start, len) {
@@ -276,6 +362,8 @@ function readMultiBlockPassword(bytes) {
 
 module.exports = {
   buildProtectedOds, buildEncryptedOdt,
+  buildProtectedXlsb, xlsbHasRecord,
   buildCfb, buildProtectedXls, buildEncryptedXls, buildProtectedDoc, buildVbaCfb, buildEncryptedOoxmlOle2, buildEncryptedPackageOle2,
+  buildEncryptedPpt, buildUnprotectedPpt,
   buildUnicodePst, buildUnicodePstMultiBlock, readPstPassword, readMultiBlockPassword, pstCrc
 };

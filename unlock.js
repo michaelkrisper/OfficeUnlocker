@@ -132,6 +132,61 @@
     return null;
   }
 
+  // The .xlsb (binary OOXML) counterparts of the XML protection elements. These
+  // are BIFF12 records (MS-XLSB) inside .bin parts; the labels mirror the XML
+  // tag names so the UI reports the same thing regardless of xlsx vs xlsb.
+  // Each protection element has a legacy record and an ISO/agile (SHA-512 + AES)
+  // variant; both are stripped so xlsb coverage matches the xlsx XML path.
+  var XLSB_BOOK_RECORDS = {
+    534: 'workbookProtection', 677: 'workbookProtection', // BrtBookProtection, BrtBookProtectionIso
+    548: 'fileSharing', 676: 'fileSharing'                // BrtFileSharing, BrtFileSharingIso
+  };
+  var XLSB_SHEET_RECORDS = { 535: 'sheetProtection', 678: 'sheetProtection' }; // BrtSheetProtection(+Iso)
+
+  function xlsbRecordsForPath(path) {
+    if (path === 'xl/workbook.bin') return XLSB_BOOK_RECORDS;
+    if (/^xl\/(worksheets|chartsheets|macrosheets|dialogsheets)\/.*\.bin$/.test(path)) return XLSB_SHEET_RECORDS;
+    return null;
+  }
+
+  // Walk a BIFF12 record stream, dropping whole records whose id is in `targets`
+  // (a map of id -> label). Each record is a variable-length type (1-2 bytes,
+  // two iff the low byte's high bit is set) followed by a variable-length size
+  // (1-4 bytes, 7 bits each). Because .bin parts are independent ZIP entries,
+  // records can be removed outright rather than patched in place.
+  // Returns { bytes, removed: [labels] }; `bytes` is unchanged if nothing matched.
+  function stripXlsbBin(buf, targets) {
+    var keep = [];
+    var removed = [];
+    var pos = 0;
+    while (pos < buf.length) {
+      var id, idLen;
+      if (buf[pos] & 0x80) { id = (buf[pos] & 0x7f) | ((buf[pos + 1] & 0x7f) << 7); idLen = 2; }
+      else { id = buf[pos]; idLen = 1; }
+      var sp = pos + idLen, size = 0, shift = 0, sl = 0;
+      for (var i = 0; i < 4; i++) {
+        var b = buf[sp + i]; sl++;
+        size += (b & 0x7f) * Math.pow(2, shift); shift += 7;
+        if (!(b & 0x80)) break;
+      }
+      var end = sp + sl + size;
+      if (end > buf.length) return { bytes: buf, removed: [] }; // malformed: leave untouched
+      var label = targets[id];
+      if (label) {
+        if (removed.indexOf(label) === -1) removed.push(label);
+      } else {
+        keep.push([pos, end]);
+      }
+      pos = end;
+    }
+    if (!removed.length) return { bytes: buf, removed: removed };
+    var total = 0;
+    for (var k = 0; k < keep.length; k++) total += keep[k][1] - keep[k][0];
+    var out = new Uint8Array(total), o = 0;
+    for (k = 0; k < keep.length; k++) { out.set(buf.subarray(keep[k][0], keep[k][1]), o); o += keep[k][1] - keep[k][0]; }
+    return { bytes: out, removed: removed };
+  }
+
   // Read the full bytes as a Uint8Array (handles Blob / ArrayBuffer / views).
   async function toBytes(data) {
     if (typeof Blob !== 'undefined' && data instanceof Blob) {
@@ -263,14 +318,27 @@
       if (entry.dir) continue;
 
       var tags = tagsForPath(path);
-      if (!tags) continue;
+      if (tags) {
+        var result = await processXmlFile(entry, tags);
+        if (result.changed) {
+          zip.file(path, result.content);
+          for (var r = 0; r < result.removedTags.length; r++) {
+            if (removed.indexOf(result.removedTags[r]) === -1) {
+              removed.push(result.removedTags[r]);
+            }
+          }
+        }
+        continue;
+      }
 
-      var result = await processXmlFile(entry, tags);
-      if (result.changed) {
-        zip.file(path, result.content);
-        for (var r = 0; r < result.removedTags.length; r++) {
-          if (removed.indexOf(result.removedTags[r]) === -1) {
-            removed.push(result.removedTags[r]);
+      var recTargets = xlsbRecordsForPath(path);
+      if (recTargets) {
+        var bin = await entry.async('uint8array');
+        var stripped = stripXlsbBin(bin, recTargets);
+        if (stripped.removed.length) {
+          zip.file(path, stripped.bytes);
+          for (var s = 0; s < stripped.removed.length; s++) {
+            if (removed.indexOf(stripped.removed[s]) === -1) removed.push(stripped.removed[s]);
           }
         }
       }

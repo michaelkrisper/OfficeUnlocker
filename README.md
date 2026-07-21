@@ -6,8 +6,8 @@ stored as a *flag or property* — **it does not break, crack or bypass real
 encryption.**
 
 - **Microsoft Office** — modern (`.xlsx`/`.docx`/`.pptx`, incl. macro‑enabled
-  `.xlsm`/`.docm`/`.pptm`) and legacy (`.xls`/`.doc`): sheet, workbook and
-  document protection ("Restrict Editing").
+  `.xlsm`/`.docm`/`.pptm` and binary `.xlsb`) and legacy (`.xls`/`.doc`): sheet,
+  workbook and document protection ("Restrict Editing").
 - **OpenDocument** (`.ods`/`.odt`/`.odp`, LibreOffice) — sheet and section
   protection.
 - **VBA macro projects** — the "lock project for viewing" password inside
@@ -31,7 +31,10 @@ by the matching unlocker — all in memory, nothing uploaded:
   [JSZip](https://stuk.github.io/jszip/), the relevant elements are stripped
   (`workbookProtection` / `sheetProtection` / `fileSharing` for Excel,
   `w:documentProtection` / `w:writeProtection` for Word, `p:modifyVerifier` for
-  PowerPoint) and it is re‑zipped.
+  PowerPoint) and it is re‑zipped. Binary `.xlsb` workbooks store the same
+  protection as BIFF12 records inside `.bin` parts (`BrtSheetProtection`,
+  `BrtBookProtection`, `BrtFileSharing`, plus their ISO/agile variants); those
+  records are dropped from the part and it is re‑zipped.
 - **OpenDocument** — also a ZIP, but protection is stored as XML *attributes*
   (`table:protected`, `text:protected`) guarded by a hashed `protection-key`.
   The flags are flipped off and the key hashes removed.
@@ -39,7 +42,10 @@ by the matching unlocker — all in memory, nothing uploaded:
   Excel the BIFF protection records (`PROTECT`, `PASSWORD`, `WINDOWPROTECT`,
   `OBJECTPROTECT`, …) are zeroed in place. For Word, "Restrict Editing" is
   removed by clearing the `Dop.fProtEnabled` switch (located via the FIB's
-  `fcDop`).
+  `fcDop`). Legacy PowerPoint (`.ppt`) has no flag‑based editing restriction —
+  it is only ever plain or fully encrypted — so it is checked for encryption
+  (via the `CurrentUserAtom` header token) and otherwise passed through
+  untouched.
 - **VBA projects** — the project password lives in the `PROJECT` stream's `DPB`
   key; renaming it (a same‑length edit) makes the VBA editor treat the project as
   unprotected. Works for macro‑enabled OOXML (`vbaProject.bin`) and legacy files.
@@ -56,11 +62,13 @@ touched.
 | Protection type | Supported |
 | --- | :---: |
 | Sheet / workbook / document protection (Office OOXML) | ✅ |
+| Binary Excel protection (`.xlsb`, BIFF12 records incl. ISO/agile) | ✅ |
 | OpenDocument sheet / section protection (`.ods`/`.odt`/`.odp`) | ✅ |
 | Legacy Excel protection records (`.xls`, BIFF) | ✅ |
 | Legacy Word "Restrict Editing" (`.doc`, `Dop.fProtEnabled`) | ✅ |
 | VBA macro project password (OOXML &amp; legacy) | ✅ |
 | Outlook PST password — ANSI &amp; Unicode, none/compressible/cyclic encoding | ✅ |
+| Legacy PowerPoint (`.ppt`) editing restriction | n/a — no such flag exists; encryption is detected |
 | **Open / view password (real, full‑file encryption)** | ❌ — detected, never decrypted |
 
 Files protected with an **open password** (AES‑encrypted Office documents, or
@@ -100,6 +108,8 @@ unlock.js                   # Format dispatcher + Office/OOXML & ODF logic (UMD)
 ole2.js                     # OLE2 / Compound File reader + in-place patcher (UMD)
 olelock.js                  # Legacy .xls/.doc + VBA project unlocker (UMD)
 pstunlock.js                # Outlook PST password remover (UMD)
+vendor/jszip.min.js         # Vendored JSZip (no CDN)
+fonts/outfit-*.woff2        # Self-hosted Outfit font (no Google Fonts)
 test/unlock.test.js         # Automated tests (build → unlock → verify)
 test/fixtures.js            # Synthetic protected-file builders for the tests
 eslint.config.js            # ESLint flat config
@@ -116,8 +126,10 @@ publishes the static files to GitHub Pages. To enable it once:
 ## Tech stack
 
 Plain HTML, CSS and JavaScript — no framework, no bundler. The only runtime
-dependency is [JSZip](https://stuk.github.io/jszip/) `3.10.1`, loaded from a CDN
-with Subresource Integrity.
+dependency is [JSZip](https://stuk.github.io/jszip/) `3.10.1`, vendored locally
+at `vendor/jszip.min.js`. The page loads **no external resources at all** — the
+Outfit font is self-hosted in `fonts/` and there is no analytics or CDN — so it
+works fully offline and makes zero third-party requests.
 
 ## License
 

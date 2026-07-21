@@ -48,6 +48,6 @@ module.exports = [
   {
     // Browser-only inline app script lives in index.html and is not linted here;
     // its logic is delegated to unlock.js which IS linted.
-    ignores: ['node_modules/**']
+    ignores: ['node_modules/**', 'vendor/**']
   }
 ];

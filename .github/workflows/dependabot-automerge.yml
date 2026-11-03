@@ -45,4 +45,4 @@ jobs:
       # Deploy workflow(s) of this repo; they need a workflow_dispatch trigger.
       - name: Trigger deploy
         if: steps.merge.outputs.merged == 'true'
-        run: gh workflow run static.yml --ref "$DEFAULT_BRANCH"
+        run: gh workflow run ci.yml --ref "$DEFAULT_BRANCH"

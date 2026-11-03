@@ -1,23 +1,28 @@
 name: CI
 
-# Runs linting and the automated test suite on every push and pull request.
+# Lints and tests on every push and pull request; pushes to main are then
+# published to GitHub Pages (only the files the page loads).
 
 on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -28,3 +33,50 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Assemble site
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          mkdir _site
+          cp -r index.html .nojekyll utils.js ole2.js olelock.js pstunlock.js unlock.js vendor fonts _site/
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          live="${{ steps.deployment.outputs.page_url }}"
+          for f in "" unlock.js ole2.js olelock.js pstunlock.js utils.js vendor/jszip.min.js fonts/outfit-latin.woff2; do
+            for attempt in 1 2 3 4 5; do
+              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$live$f" || echo 000)"
+              [ "$code" = 200 ] && break
+              sleep 5
+            done
+            echo "/$f -> $code"
+            [ "$code" = 200 ] || { echo "::error::/$f returned $code"; exit 1; }
+          done

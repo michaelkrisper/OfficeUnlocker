@@ -1,7 +1,7 @@
 {
   "name": "officeunlocker",
   "version": "1.0.0",
-  "description": "Remove editing/sheet/workbook/document protection from Office (.xlsx, .docx, .pptx) files entirely in the browser.",
+  "description": "Remove editing restrictions from Office, OpenDocument, VBA and PST files entirely in the browser.",
   "license": "MIT",
   "private": true,
   "scripts": {

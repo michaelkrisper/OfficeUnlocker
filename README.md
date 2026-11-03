@@ -1,4 +1,4 @@
-# 🔓 OfficeUnlocker
+# OfficeUnlocker
 
 A single‑page web app that removes **editing restrictions** from common
 document types, directly in your browser. It only clears protection that is
@@ -16,10 +16,11 @@ encryption.**
 
 **Everything runs locally. Your files are never uploaded to any server.**
 
-👉 **Live site:** https://michaelkrisper.github.io/OfficeUnlocker/
+**[Open the app](https://michaelkrisper.github.io/OfficeUnlocker/)**
 
 [![CI](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-4f46e5)](https://michaelkrisper.github.io/OfficeUnlocker/)
 
 ## How it works
 
@@ -60,23 +61,23 @@ touched.
 ## What it can and cannot do
 
 | Protection type | Supported |
-| --- | :---: |
-| Sheet / workbook / document protection (Office OOXML) | ✅ |
-| Binary Excel protection (`.xlsb`, BIFF12 records incl. ISO/agile) | ✅ |
-| OpenDocument sheet / section protection (`.ods`/`.odt`/`.odp`) | ✅ |
-| Legacy Excel protection records (`.xls`, BIFF) | ✅ |
-| Legacy Word "Restrict Editing" (`.doc`, `Dop.fProtEnabled`) | ✅ |
-| VBA macro project password (OOXML &amp; legacy) | ✅ |
-| Outlook PST password — ANSI &amp; Unicode, none/compressible/cyclic encoding | ✅ |
-| Legacy PowerPoint (`.ppt`) editing restriction | n/a — no such flag exists; encryption is detected |
-| **Open / view password (real, full‑file encryption)** | ❌ — detected, never decrypted |
+| --- | --- |
+| Sheet / workbook / document protection (Office OOXML) | Yes |
+| Binary Excel protection (`.xlsb`, BIFF12 records incl. ISO/agile) | Yes |
+| OpenDocument sheet / section protection (`.ods`/`.odt`/`.odp`) | Yes |
+| Legacy Excel protection records (`.xls`, BIFF) | Yes |
+| Legacy Word "Restrict Editing" (`.doc`, `Dop.fProtEnabled`) | Yes |
+| VBA macro project password (OOXML &amp; legacy) | Yes |
+| Outlook PST password — ANSI &amp; Unicode, none/compressible/cyclic encoding | Yes |
+| Legacy PowerPoint (`.ppt`) editing restriction | n/a: no such flag exists; encryption is detected |
+| **Open / view password (real, full‑file encryption)** | No: detected, never decrypted |
 
 Files protected with an **open password** (AES‑encrypted Office documents, or
 anything that needs a password just to open/view) are real encryption.
 OfficeUnlocker **does not attempt to break them** — it detects them and tells you
 so, instead of producing a corrupt file.
 
-> ⚠️ Only use this tool on files you own or are authorised to modify.
+> **Note:** Only use this tool on files you own or are authorised to modify.
 
 ## Disclaimer
 
@@ -104,6 +105,7 @@ npm run check   # lint + test (used in CI)
 
 ```
 index.html                  # The web app (UI + glue code)
+utils.js                    # Little-endian byte readers shared by the modules (UMD)
 unlock.js                   # Format dispatcher + Office/OOXML & ODF logic (UMD)
 ole2.js                     # OLE2 / Compound File reader + in-place patcher (UMD)
 olelock.js                  # Legacy .xls/.doc + VBA project unlocker (UMD)
@@ -113,14 +115,15 @@ fonts/outfit-*.woff2        # Self-hosted Outfit font (no Google Fonts)
 test/unlock.test.js         # Automated tests (build → unlock → verify)
 test/fixtures.js            # Synthetic protected-file builders for the tests
 eslint.config.js            # ESLint flat config
-.github/workflows/ci.yml    # Lint + test on every push / PR
-.github/workflows/static.yml# Deploy to GitHub Pages on push to main
+.github/workflows/ci.yml    # Lint + test on every push / PR, deploy from main
 ```
 
 ## Deployment
 
-Pushing to `main` triggers the **Deploy to GitHub Pages** workflow, which
-publishes the static files to GitHub Pages. To enable it once:
+Every push to `main` runs the [CI workflow](.github/workflows/ci.yml); once lint
+and tests pass, it publishes the files the page loads (`index.html`, the five
+modules, `vendor/`, `fonts/`) to GitHub Pages and checks them on the live site.
+To enable it once:
 **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## Tech stack

@@ -1,4 +1,5 @@
-# Updates of actions and dev tools as grouped weekly pull requests.
+# Weekly updates of actions and dev tools: minor/patch bumps grouped into one
+# pull request per ecosystem, major bumps as separate pull requests.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,6 +9,7 @@ updates:
     groups:
       actions:
         patterns: ['*']
+        update-types: [minor, patch]
 
   - package-ecosystem: npm
     directory: /
@@ -16,3 +18,4 @@ updates:
     groups:
       npm:
         patterns: ['*']
+        update-types: [minor, patch]

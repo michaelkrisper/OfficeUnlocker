@@ -20,6 +20,7 @@ encryption.**
 
 [![CI](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%E2%89%A522-339933)](package.json)
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-4f46e5)](https://michaelkrisper.github.io/OfficeUnlocker/)
 
 ## How it works
@@ -129,7 +130,7 @@ To enable it once:
 ## Tech stack
 
 Plain HTML, CSS and JavaScript — no framework, no bundler. The only runtime
-dependency is [JSZip](https://stuk.github.io/jszip/) `3.10.1`, vendored locally
+dependency is [JSZip](https://stuk.github.io/jszip/) `3.10.2`, vendored locally
 at `vendor/jszip.min.js`. The page loads **no external resources at all** — the
 Outfit font is self-hosted in `fonts/` and there is no analytics or CDN — so it
 works fully offline and makes zero third-party requests.

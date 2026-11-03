@@ -115,15 +115,19 @@
     var rootEntry = entries.filter(function (en) { return en.type === 5; })[0];
     var rootChain = rootEntry ? fatChain(rootEntry.start) : [];
 
+    // Chains are cached per start sector: readStream/patchStream resolve one
+    // offset per sector, and walking the chain each time is quadratic.
+    var chainCache = {}, miniChainCache = {};
+
     function physOffset(entry, logOff) {
       if (entry.size >= miniCutoff || entry.type === 5) {
         var idx = Math.floor(logOff / sectorSize), within = logOff % sectorSize;
-        var chain = fatChain(entry.start);
+        var chain = chainCache[entry.start] || (chainCache[entry.start] = fatChain(entry.start));
         return sectorOffset(chain[idx]) + within;
       }
       // Mini stream.
       var midx = Math.floor(logOff / miniSectorSize), mw = logOff % miniSectorSize;
-      var mc = miniFatChain(entry.start);
+      var mc = miniChainCache[entry.start] || (miniChainCache[entry.start] = miniFatChain(entry.start));
       var containerLog = mc[midx] * miniSectorSize + mw;
       var cidx = Math.floor(containerLog / sectorSize), cw = containerLog % sectorSize;
       return sectorOffset(rootChain[cidx]) + cw;

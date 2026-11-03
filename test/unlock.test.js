@@ -525,6 +525,50 @@ async function readEntry(buffer, path) {
     assert.ok(out.removed.includes('worksheet/workbook protection'));
   });
 
+  // --- OLE2 container and helpers -------------------------------------------
+
+  await test('Utils reads little-endian u16/u32, u32 unsigned', () => {
+    const Utils = require('../utils.js');
+    const b = new Uint8Array([0x34, 0x12, 0x78, 0x56, 0xff, 0xff, 0xff, 0xff]);
+    assert.strictEqual(Utils.u16(b, 0), 0x1234);
+    assert.strictEqual(Utils.u32(b, 0), 0x56781234);
+    assert.strictEqual(Utils.u32(b, 4), 0xffffffff);
+  });
+
+  await test('Ole2 lists directory entries and reads a multi-sector stream exactly', () => {
+    const data = Uint8Array.from({ length: 5000 }, (_, i) => (i * 7) & 0xff);
+    const cfb = Ole2.parse(fixtures.buildCfb([
+      { name: 'First', data: new Uint8Array(4096).fill(1) },
+      { name: 'Data', data }
+    ]));
+    assert.deepStrictEqual(cfb.entries.map((e) => [e.name, e.type]), [['Root Entry', 5], ['First', 2], ['Data', 2]]);
+    assert.deepStrictEqual(cfb.readStream('Data'), data);
+    assert.strictEqual(cfb.readStream('Missing'), null);
+  });
+
+  await test('Ole2 patchStream writes across a sector boundary and nothing else', () => {
+    const bytes = fixtures.buildCfb([
+      { name: 'First', data: new Uint8Array(4096) },
+      { name: 'Data', data: new Uint8Array(4096) }
+    ]);
+    const before = bytes.slice();
+    const cfb = Ole2.parse(bytes);
+    cfb.patchStream('Data', 510, new Uint8Array([1, 2, 3, 4]));
+    const stream = cfb.readStream('Data');
+    assert.deepStrictEqual(Array.from(stream.subarray(508, 516)), [0, 0, 1, 2, 3, 4, 0, 0]);
+    assert.deepStrictEqual(cfb.readStream('First'), new Uint8Array(4096));
+    let changed = 0;
+    for (let i = 0; i < bytes.length; i++) if (bytes[i] !== before[i]) changed++;
+    assert.strictEqual(changed, 4, 'only the four patched bytes may change');
+  });
+
+  await test('unlockVbaProjectBin passes non-OLE2 input through unchanged', () => {
+    const input = new Uint8Array([1, 2, 3, 4]);
+    const res = OleLock.unlockVbaProjectBin(input);
+    assert.strictEqual(res.changed, false);
+    assert.deepStrictEqual(res.bytes, input);
+  });
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');
   process.exit(failed === 0 ? 0 : 1);
 })();

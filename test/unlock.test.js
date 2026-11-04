@@ -569,6 +569,12 @@ async function readEntry(buffer, path) {
     assert.deepStrictEqual(res.bytes, input);
   });
 
+  await test('vendored JSZip matches the tested npm version', () => {
+    const fs = require('fs');
+    const vendored = fs.readFileSync(__dirname + '/../vendor/jszip.min.js', 'utf8').match(/JSZip v(\S+)/)[1];
+    assert.strictEqual(vendored, require('jszip/package.json').version);
+  });
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');
   process.exit(failed === 0 ? 0 : 1);
 })();

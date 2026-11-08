@@ -19,6 +19,7 @@ encryption.**
 **[Open the app](https://michaelkrisper.github.io/OfficeUnlocker/)**
 
 [![CI](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/v/tag/michaelkrisper/OfficeUnlocker?sort=semver&label=version)](https://github.com/michaelkrisper/OfficeUnlocker/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A522-339933)](package.json)
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-4f46e5)](https://michaelkrisper.github.io/OfficeUnlocker/)
@@ -124,6 +125,9 @@ eslint.config.js            # ESLint flat config
 Every push to `main` runs the [CI workflow](.github/workflows/ci.yml); once lint
 and tests pass, it publishes the files the page loads (`index.html`, the five
 modules, `vendor/`, `fonts/`) to GitHub Pages and checks them on the live site.
+Every merge to `main` is tagged with the next patch version; bundled releases
+with release notes come from the Release workflow (see
+[CONTRIBUTING](CONTRIBUTING.md#versions-and-releases)).
 To enable it once:
 **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
@@ -134,6 +138,10 @@ dependency is [JSZip](https://stuk.github.io/jszip/) `3.10.2`, vendored locally
 at `vendor/jszip.min.js`. The page loads **no external resources at all** — the
 Outfit font is self-hosted in `fonts/` and there is no analytics or CDN — so it
 works fully offline and makes zero third-party requests.
+
+## Contributing
+
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

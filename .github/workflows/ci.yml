@@ -47,8 +47,9 @@ jobs:
           path: _site
 
   deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: check
+    # Only commits that got a version tag: a re-run of an older run deploys nothing.
+    if: needs.version.outputs.version != ''
+    needs: [check, version]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -80,3 +81,25 @@ jobs:
             echo "/$f -> $code"
             [ "$code" = 200 ] || { echo "::error::/$f returned $code"; exit 1; }
           done
+
+  # Tags every tested commit on main with the next patch version (vX.Y.Z).
+  version:
+    name: Version tag
+    needs: [check]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: version-tag
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: tag
+        run: python3 .github/scripts/release.py tag
+        env:
+          GH_TOKEN: ${{ github.token }}

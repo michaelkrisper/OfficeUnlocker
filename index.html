@@ -450,6 +450,7 @@
       color: var(--accent);
       border-bottom-color: var(--accent);
     }
+    .version { margin-top: 8px; font-size: 0.74rem; }
 
     @media (max-width: 480px) {
       .card__header { padding: 32px 24px 0; }
@@ -542,6 +543,8 @@
   <footer>
     Open source &amp; MIT licensed ·
     <a href="https://github.com/michaelkrisper/OfficeUnlocker" target="_blank" rel="noopener">View on GitHub</a>
+    <!-- The deploy job replaces "dev" with the version tag (ci.yml). -->
+    <div class="version">Version <span id="version">dev</span></div>
   </footer>
 
   <script src="vendor/jszip.min.js"></script>

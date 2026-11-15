@@ -16,13 +16,13 @@ encryption.**
 
 **Everything runs locally. Your files are never uploaded to any server.**
 
-**[Open the app](https://michaelkrisper.github.io/OfficeUnlocker/)**
+**[Open the app](https://officeunlocker.krisperapps.de/)**
 
 [![CI](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/OfficeUnlocker/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/tag/michaelkrisper/OfficeUnlocker?sort=semver&label=version)](https://github.com/michaelkrisper/OfficeUnlocker/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A522-339933)](package.json)
-[![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-4f46e5)](https://michaelkrisper.github.io/OfficeUnlocker/)
+[![Live demo](https://img.shields.io/badge/demo-live-4f46e5)](https://officeunlocker.krisperapps.de/)
 
 ## How it works
 
@@ -124,12 +124,11 @@ eslint.config.js            # ESLint flat config
 
 Every push to `main` runs the [CI workflow](.github/workflows/ci.yml); once lint
 and tests pass, it publishes the files the page loads (`index.html`, the five
-modules, `vendor/`, `fonts/`) to GitHub Pages and checks them on the live site.
+modules, `vendor/`, `fonts/`) to <https://officeunlocker.krisperapps.de/> and
+checks them on the live site.
 Every merge to `main` is tagged with the next patch version; bundled releases
 with release notes come from the Release workflow (see
 [CONTRIBUTING](CONTRIBUTING.md#versions-and-releases)).
-To enable it once:
-**Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## Tech stack
 

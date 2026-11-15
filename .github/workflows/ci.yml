@@ -1,7 +1,7 @@
 name: CI
 
 # Lints and tests on every push and pull request; pushes to main are then
-# published to GitHub Pages (only the files the page loads).
+# published to krisperapps.de (only the files the page loads).
 
 on:
   push:
@@ -38,40 +38,48 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           mkdir _site
-          cp -r index.html .nojekyll utils.js ole2.js olelock.js pstunlock.js unlock.js vendor fonts _site/
+          cp -r index.html utils.js ole2.js olelock.js pstunlock.js unlock.js vendor fonts _site/
 
-      - name: Upload Pages artifact
+      - name: Upload site
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
+          name: site
           path: _site
+          retention-days: 1
 
-  deploy:
+  # The key may only write into this app's folder on the server, and this job
+  # runs no code from the repository: it downloads the site and rsyncs.
+  server:
+    name: krisperapps.de
     # Only commits that got a version tag: a re-run of an older run deploys nothing.
     if: needs.version.outputs.version != ''
     needs: [check, version]
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
     concurrency:
-      group: pages
+      group: server
       cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Configure Pages
-        uses: actions/configure-pages@v6
+      - name: Download site
+        uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Upload
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          echo 'krisperapps.de ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMchrlhQI1OFJ2cEfQosiydiSPg498c/+Mggebk+zVLO' > ~/.ssh/known_hosts
+          rsync -rtz --delete -e 'ssh -i ~/.ssh/deploy' _site/ deploy@krisperapps.de:./
 
       - name: Smoke test
         run: |
           set -euo pipefail
-          live="${{ steps.deployment.outputs.page_url }}"
+          live="https://officeunlocker.krisperapps.de/"
           for f in "" unlock.js ole2.js olelock.js pstunlock.js utils.js vendor/jszip.min.js fonts/outfit-latin.woff2; do
             for attempt in 1 2 3 4 5; do
               code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$live$f" || echo 000)"

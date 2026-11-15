@@ -3,8 +3,8 @@
 OfficeUnlocker: a single-page, fully client-side web app that strips editing
 restrictions (flags/properties) from Office OOXML, `.xlsb`, OpenDocument, legacy OLE2
 `.xls`/`.doc`, VBA projects and Outlook `.pst`. Plain HTML/CSS/JS, no framework, no
-bundler, no build step. CI deploys the page files to GitHub Pages
-(https://michaelkrisper.github.io/OfficeUnlocker/).
+bundler, no build step. CI deploys the page files to the own server
+(https://officeunlocker.krisperapps.de/).
 
 It never breaks real encryption: open-password / AES-encrypted files are detected and
 reported, not decrypted, and no password is recovered. Keep that boundary; it is the
@@ -87,5 +87,5 @@ tooling: the Node tests exercise exactly the code the site ships.
 - PRs auto-merge (squash) once CI and the "Linked ticket" check pass; drafts are not merged.
 - Versions exist only as git tags `vX.Y.Z`. Every merge to `main` tags the next patch;
   never edit version numbers in files. Minor/major releases: Actions -> Release.
-- Merging to `main` deploys to GitHub Pages automatically.
+- Merging to `main` deploys to https://officeunlocker.krisperapps.de/ automatically.
 - Details: CONTRIBUTING.md.

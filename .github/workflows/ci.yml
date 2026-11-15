@@ -49,7 +49,8 @@ jobs:
           retention-days: 1
 
   # The key may only write into this app's folder on the server, and this job
-  # runs no code from the repository: it downloads the site and rsyncs.
+  # runs no code from the repository: it downloads the site, stamps the version
+  # tag into index.html and rsyncs.
   server:
     name: krisperapps.de
     # Only commits that got a version tag: a re-run of an older run deploys nothing.
@@ -66,6 +67,14 @@ jobs:
           name: site
           path: _site
 
+      - name: Stamp version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "s|<span id=\"version\">dev</span>|<span id=\"version\">${VERSION#v}</span>|" _site/index.html
+          grep -q ">${VERSION#v}<" _site/index.html
+
       - name: Upload
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -77,6 +86,8 @@ jobs:
           rsync -rtz --delete -e 'ssh -i ~/.ssh/deploy' _site/ deploy@krisperapps.de:./
 
       - name: Smoke test
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           live="https://officeunlocker.krisperapps.de/"
@@ -89,6 +100,7 @@ jobs:
             echo "/$f -> $code"
             [ "$code" = 200 ] || { echo "::error::/$f returned $code"; exit 1; }
           done
+          curl -s "$live" | grep -q ">${VERSION#v}<" || { echo "::error::index.html is not stamped with ${VERSION}"; exit 1; }
 
   # Tags every tested commit on main with the next patch version (vX.Y.Z).
   version:

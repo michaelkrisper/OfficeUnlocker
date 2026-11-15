@@ -575,6 +575,11 @@ async function readEntry(buffer, path) {
     assert.strictEqual(vendored, require('jszip/package.json').version);
   });
 
+  await test('index.html carries the version placeholder the deploy job stamps', () => {
+    const html = require('fs').readFileSync(__dirname + '/../index.html', 'utf8');
+    assert.strictEqual(html.split('<span id="version">dev</span>').length, 2);
+  });
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');
   process.exit(failed === 0 ? 0 : 1);
 })();

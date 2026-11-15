@@ -544,7 +544,7 @@
     Open source &amp; MIT licensed ·
     <a href="https://github.com/michaelkrisper/OfficeUnlocker" target="_blank" rel="noopener">View on GitHub</a>
     <!-- The deploy job replaces "dev" with the version tag (ci.yml). -->
-    <div class="version">Version <span id="version">dev</span></div>
+    <div class="version"><span id="version">dev</span></div>
   </footer>
 
   <script src="vendor/jszip.min.js"></script>
@@ -556,6 +556,10 @@
   <script>
     (function () {
       'use strict';
+
+      // The deploy stamps the bare number; shown as v1.2.3, unstamped it stays "dev".
+      var versionEl = document.getElementById('version');
+      if (versionEl.textContent !== 'dev') versionEl.textContent = 'v' + versionEl.textContent;
 
       var fileInput = document.getElementById('fileInput');
       var dropzone = document.getElementById('dropzone');

@@ -27,7 +27,7 @@ npm run check   # lint + test = what CI runs
   static server. All paths are relative.
 - CI (`.github/workflows/ci.yml`, job `check`): Node `lts/*`, `npm ci`, lint, test on
   every push and PR. On `main` it then tags the version, stamps it into the footer
-  of `index.html` (placeholder `dev`), deploys and curls every published file on the
+  of `index.html` (placeholder `dev`, shown as `v1.2.3`), deploys and curls every published file on the
   live site.
 
 ## Architecture

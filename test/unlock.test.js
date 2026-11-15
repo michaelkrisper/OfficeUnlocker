@@ -580,6 +580,13 @@ async function readEntry(buffer, path) {
     assert.strictEqual(html.split('<span id="version">dev</span>').length, 2);
   });
 
+  await test('index.html links the central legal pages', () => {
+    const html = require('fs').readFileSync(__dirname + '/../index.html', 'utf8');
+    ['impressum', 'datenschutz#officeunlocker', 'nutzung'].forEach((page) => {
+      assert.ok(html.includes('<a href="https://krisperapps.de/' + page + '" target="_blank" rel="noopener">'), page);
+    });
+  });
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed\n');
   process.exit(failed === 0 ? 0 : 1);
 })();
